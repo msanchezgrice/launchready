@@ -1,0 +1,66 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String?
+  plan      String    @default("free") // free, pro, pro_plus, enterprise
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  projects  Project[]
+}
+
+model Project {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  url           String
+  githubRepo    String?
+  vercelProject String?
+  autoScanEnabled Boolean @default(false)
+  autoScanSchedule String? // cron expression
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  scans         Scan[]
+
+  @@index([userId])
+}
+
+model Scan {
+  id         String      @id @default(cuid())
+  projectId  String
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  score      Int
+  scannedAt  DateTime    @default(now())
+  phases     ScanPhase[]
+  metadata   Json?       // Additional scan metadata
+  trigger    String      @default("manual") // manual, auto-scan, api
+
+  @@index([projectId])
+  @@index([scannedAt])
+}
+
+model ScanPhase {
+  id              String   @id @default(cuid())
+  scanId          String
+  scan            Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  phaseName       String
+  score           Int
+  maxScore        Int
+  findings        Json     // Detailed findings for this phase
+  recommendations Json?    // Recommendations for improvement
+  createdAt       DateTime @default(now())
+
+  @@index([scanId])
+}

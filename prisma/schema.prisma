@@ -12,12 +12,16 @@ datasource db {
 
 model User {
   id        String    @id @default(cuid())
+  clerkId   String    @unique // Clerk user ID
   email     String    @unique
   name      String?
   plan      String    @default("free") // free, pro, pro_plus, enterprise
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  lastScan  DateTime? // Track last scan for rate limiting
   projects  Project[]
+
+  @@index([clerkId])
 }
 
 model Project {

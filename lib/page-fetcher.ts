@@ -1,6 +1,6 @@
 /**
- * Page Fetching Utility using Playwright
- * Fetches and parses web pages for scanning
+ * Page Fetching Utility using Browserless
+ * Fetches and parses web pages for scanning on Vercel serverless
  */
 
 import { chromium } from 'playwright-core';
@@ -16,16 +16,29 @@ export interface PageData {
 
 /**
  * Fetch a web page and extract relevant data for scanning
+ * Uses Browserless API for serverless compatibility
  */
 export async function fetchPage(url: string): Promise<PageData> {
+  const browserlessApiKey = process.env.BROWSERLESS_API_KEY;
+
+  if (!browserlessApiKey) {
+    return {
+      html: '',
+      title: '',
+      metaTags: {},
+      scripts: [],
+      loaded: false,
+      error: 'Browserless API key not configured'
+    };
+  }
+
   let browser;
 
   try {
-    // Launch headless browser
-    browser = await chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+    // Connect to Browserless WebSocket endpoint
+    const browserlessUrl = `wss://chrome.browserless.io?token=${browserlessApiKey}`;
+
+    browser = await chromium.connect(browserlessUrl);
 
     const context = await browser.newContext({
       userAgent: 'LaunchReady Scanner Bot/1.0'
@@ -75,7 +88,9 @@ export async function fetchPage(url: string): Promise<PageData> {
 
   } catch (error) {
     if (browser) {
-      await browser.close();
+      await browser.close().catch(() => {
+        // Ignore close errors if already disconnected
+      });
     }
 
     return {

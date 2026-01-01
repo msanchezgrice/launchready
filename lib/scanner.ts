@@ -3,6 +3,8 @@
  * Performs 8-phase readiness assessment on any URL
  */
 
+import { fetchPage } from './page-fetcher';
+
 export interface ScanPhaseResult {
   phaseName: string;
   score: number;
@@ -124,30 +126,128 @@ export async function checkSEO(url: string): Promise<ScanPhaseResult> {
   let score = 0;
   const maxScore = 100;
 
-  // For MVP, we'll do basic checks
-  // In production, we'd fetch the page and check meta tags
+  // Fetch the page
+  const pageData = await fetchPage(url);
 
-  findings.push({
-    type: 'warning',
-    message: 'SEO check requires page access',
-    details: 'Upgrade to Pro for full SEO analysis'
-  });
+  if (!pageData.loaded) {
+    findings.push({
+      type: 'error',
+      message: 'Failed to load page',
+      details: pageData.error || 'Could not fetch page for analysis'
+    });
+    return { phaseName: 'SEO Fundamentals', score, maxScore, findings, recommendations };
+  }
 
-  score = 50; // Default score for MVP
+  // Check page title
+  if (pageData.title && pageData.title.length > 0) {
+    score += 25;
+    if (pageData.title.length >= 50 && pageData.title.length <= 60) {
+      score += 10;
+      findings.push({
+        type: 'success',
+        message: 'Page title is well-optimized',
+        details: `Title length: ${pageData.title.length} characters (ideal: 50-60)`
+      });
+    } else {
+      findings.push({
+        type: 'warning',
+        message: `Page title length is ${pageData.title.length} characters`,
+        details: 'Ideal length is 50-60 characters for SEO'
+      });
+      recommendations.push({
+        priority: 'high',
+        title: 'Optimize page title length',
+        description: 'Page titles should be 50-60 characters for best SEO results',
+        actionable: `Current: ${pageData.title.length} chars. ${pageData.title.length > 60 ? 'Shorten' : 'Expand'} to 50-60 chars.`
+      });
+    }
+  } else {
+    findings.push({
+      type: 'error',
+      message: 'Missing page title',
+      details: 'Every page should have a unique, descriptive title'
+    });
+    recommendations.push({
+      priority: 'high',
+      title: 'Add page title',
+      description: 'Page title is critical for SEO and user experience',
+      actionable: 'Add a <title> tag with 50-60 character description'
+    });
+  }
 
-  recommendations.push({
-    priority: 'high',
-    title: 'Add meta description',
-    description: 'Write compelling meta description (150-160 chars)',
-    actionable: 'Use Next.js Metadata API to set description'
-  });
+  // Check meta description
+  const description = pageData.metaTags['description'] || pageData.metaTags['og:description'];
+  if (description && description.length > 0) {
+    score += 25;
+    if (description.length >= 150 && description.length <= 160) {
+      score += 10;
+      findings.push({
+        type: 'success',
+        message: 'Meta description is well-optimized',
+        details: `Description length: ${description.length} characters (ideal: 150-160)`
+      });
+    } else {
+      findings.push({
+        type: 'warning',
+        message: `Meta description length is ${description.length} characters`,
+        details: 'Ideal length is 150-160 characters for SEO'
+      });
+      recommendations.push({
+        priority: 'high',
+        title: 'Optimize meta description length',
+        description: 'Meta descriptions should be 150-160 characters',
+        actionable: `Current: ${description.length} chars. ${description.length > 160 ? 'Shorten' : 'Expand'} to 150-160 chars.`
+      });
+    }
+  } else {
+    findings.push({
+      type: 'error',
+      message: 'Missing meta description',
+      details: 'Meta description improves click-through rates from search'
+    });
+    recommendations.push({
+      priority: 'high',
+      title: 'Add meta description',
+      description: 'Write compelling meta description (150-160 chars)',
+      actionable: 'Add <meta name="description" content="..."> tag'
+    });
+  }
 
-  recommendations.push({
-    priority: 'high',
-    title: 'Optimize page titles',
-    description: 'Ensure all pages have unique, descriptive titles',
-    actionable: 'Title should be 50-60 characters, include main keyword'
-  });
+  // Check Open Graph tags
+  const hasOGTitle = !!pageData.metaTags['og:title'];
+  const hasOGDescription = !!pageData.metaTags['og:description'];
+  const hasOGImage = !!pageData.metaTags['og:image'];
+
+  if (hasOGTitle && hasOGDescription && hasOGImage) {
+    score += 20;
+    findings.push({
+      type: 'success',
+      message: 'Open Graph tags present',
+      details: 'Good for social media sharing'
+    });
+  } else {
+    findings.push({
+      type: 'warning',
+      message: 'Incomplete Open Graph tags',
+      details: `Missing: ${[!hasOGTitle && 'og:title', !hasOGDescription && 'og:description', !hasOGImage && 'og:image'].filter(Boolean).join(', ')}`
+    });
+    recommendations.push({
+      priority: 'medium',
+      title: 'Add Open Graph tags',
+      description: 'Improves how your site appears when shared on social media',
+      actionable: 'Add og:title, og:description, and og:image meta tags'
+    });
+  }
+
+  // Check for keywords (bonus points)
+  if (pageData.metaTags['keywords']) {
+    score += 10;
+    findings.push({
+      type: 'success',
+      message: 'Meta keywords present',
+      details: 'Keywords can help with topic relevance'
+    });
+  }
 
   return {
     phaseName: 'SEO Fundamentals',
@@ -250,27 +350,144 @@ export async function checkAnalytics(url: string): Promise<ScanPhaseResult> {
   let score = 0;
   const maxScore = 100;
 
-  findings.push({
-    type: 'warning',
-    message: 'Analytics detection requires page access',
-    details: 'Upgrade to Pro for full analytics audit'
-  });
+  // Fetch the page
+  const pageData = await fetchPage(url);
 
-  score = 30;
+  if (!pageData.loaded) {
+    findings.push({
+      type: 'error',
+      message: 'Failed to load page',
+      details: pageData.error || 'Could not fetch page for analysis'
+    });
+    return { phaseName: 'Analytics', score, maxScore, findings, recommendations };
+  }
 
-  recommendations.push({
-    priority: 'high',
-    title: 'Install analytics',
-    description: 'Set up PostHog, Google Analytics, or Plausible',
-    actionable: 'Add tracking script to your app layout'
-  });
+  // Analytics detection patterns
+  const analyticsPatterns = {
+    'Google Analytics': [
+      /google-analytics\.com\/analytics\.js/,
+      /googletagmanager\.com\/gtag\/js/,
+      /googletagmanager\.com\/gtm\.js/,
+      /ga\(.*create/,
+      /gtag\(/
+    ],
+    'PostHog': [
+      /posthog\.com\/static\/array\.js/,
+      /posthog\.init\(/,
+      /app\.posthog\.com/
+    ],
+    'Plausible': [
+      /plausible\.io\/js\/plausible/,
+      /plausible\.io\/js\/script/
+    ],
+    'Mixpanel': [
+      /mixpanel\.com\/libs\/mixpanel/,
+      /mixpanel\.init\(/
+    ],
+    'Segment': [
+      /segment\.com\/analytics\.js/,
+      /analytics\.load\(/
+    ],
+    'Heap': [
+      /heapanalytics\.com/,
+      /heap\.load\(/
+    ],
+    'Amplitude': [
+      /amplitude\.com.*\.js/,
+      /amplitude\.getInstance\(/
+    ],
+    'Hotjar': [
+      /static\.hotjar\.com/,
+      /hjid:/
+    ],
+    'Fathom': [
+      /cdn\.usefathom\.com/,
+      /fathom\(/
+    ]
+  };
 
-  recommendations.push({
-    priority: 'medium',
-    title: 'Set up conversion tracking',
-    description: 'Track key user actions (signups, purchases)',
-    actionable: 'Define events and goals in your analytics platform'
-  });
+  const detectedTools: string[] = [];
+
+  // Check scripts
+  for (const script of pageData.scripts) {
+    for (const [toolName, patterns] of Object.entries(analyticsPatterns)) {
+      if (patterns.some(pattern => pattern.test(script))) {
+        if (!detectedTools.includes(toolName)) {
+          detectedTools.push(toolName);
+        }
+      }
+    }
+  }
+
+  // Check HTML content for inline analytics code
+  for (const [toolName, patterns] of Object.entries(analyticsPatterns)) {
+    if (patterns.some(pattern => pattern.test(pageData.html))) {
+      if (!detectedTools.includes(toolName)) {
+        detectedTools.push(toolName);
+      }
+    }
+  }
+
+  // Score based on detection
+  if (detectedTools.length > 0) {
+    score += 60; // Base score for having analytics
+    findings.push({
+      type: 'success',
+      message: `Analytics tools detected: ${detectedTools.join(', ')}`,
+      details: `Found ${detectedTools.length} analytics ${detectedTools.length === 1 ? 'tool' : 'tools'}`
+    });
+
+    // Bonus points for multiple tools (up to 20 points)
+    if (detectedTools.length >= 2) {
+      score += 20;
+      findings.push({
+        type: 'success',
+        message: 'Multiple analytics tools configured',
+        details: 'Good coverage with multiple tracking solutions'
+      });
+    }
+
+    // Bonus points for privacy-focused analytics (up to 20 points)
+    const privacyFocused = detectedTools.filter(tool =>
+      ['Plausible', 'Fathom', 'PostHog'].includes(tool)
+    );
+    if (privacyFocused.length > 0) {
+      score += 20;
+      findings.push({
+        type: 'success',
+        message: 'Privacy-focused analytics detected',
+        details: `${privacyFocused.join(', ')} respects user privacy`
+      });
+    }
+
+    // Recommendations for improvement
+    if (!detectedTools.some(tool => ['PostHog', 'Mixpanel', 'Amplitude', 'Heap'].includes(tool))) {
+      recommendations.push({
+        priority: 'medium',
+        title: 'Add product analytics',
+        description: 'Consider adding event-based analytics for deeper insights',
+        actionable: 'Install PostHog, Mixpanel, or Amplitude for user behavior tracking'
+      });
+    }
+  } else {
+    findings.push({
+      type: 'error',
+      message: 'No analytics tools detected',
+      details: 'Cannot track user behavior or measure conversions'
+    });
+    recommendations.push({
+      priority: 'high',
+      title: 'Install analytics',
+      description: 'Set up analytics to understand your users',
+      actionable: 'Add Google Analytics, PostHog, or Plausible to track visitors'
+    });
+    recommendations.push({
+      priority: 'medium',
+      title: 'Set up conversion tracking',
+      description: 'Track key user actions (signups, purchases)',
+      actionable: 'Define events and goals in your analytics platform'
+    });
+  }
 
   return {
     phaseName: 'Analytics',
@@ -290,27 +507,166 @@ export async function checkSocial(url: string): Promise<ScanPhaseResult> {
   let score = 0;
   const maxScore = 100;
 
-  findings.push({
-    type: 'warning',
-    message: 'Social media check requires page access',
-    details: 'Upgrade to Pro for Open Graph and Twitter Card analysis'
-  });
+  // Fetch the page
+  const pageData = await fetchPage(url);
 
-  score = 30;
+  if (!pageData.loaded) {
+    findings.push({
+      type: 'error',
+      message: 'Failed to load page',
+      details: pageData.error || 'Could not fetch page for analysis'
+    });
+    return { phaseName: 'Social Media', score, maxScore, findings, recommendations };
+  }
 
-  recommendations.push({
-    priority: 'high',
-    title: 'Add Open Graph tags',
-    description: 'Optimize how your site appears when shared',
-    actionable: 'Add og:title, og:description, og:image to metadata'
-  });
+  // Check Open Graph tags (core tags: 40 points)
+  const ogTitle = pageData.metaTags['og:title'];
+  const ogDescription = pageData.metaTags['og:description'];
+  const ogImage = pageData.metaTags['og:image'];
+  const ogUrl = pageData.metaTags['og:url'];
+  const ogType = pageData.metaTags['og:type'];
+  const ogSiteName = pageData.metaTags['og:site_name'];
 
-  recommendations.push({
-    priority: 'medium',
-    title: 'Create Twitter Cards',
-    description: 'Enhance Twitter sharing with rich preview cards',
-    actionable: 'Add twitter:card, twitter:title, twitter:image'
-  });
+  const hasOGCore = !!(ogTitle && ogDescription && ogImage);
+  const hasOGExtended = !!(ogUrl && ogType);
+
+  if (hasOGCore) {
+    score += 40;
+    findings.push({
+      type: 'success',
+      message: 'Core Open Graph tags present',
+      details: 'og:title, og:description, and og:image are configured'
+    });
+
+    if (hasOGExtended) {
+      score += 10;
+      findings.push({
+        type: 'success',
+        message: 'Extended Open Graph tags present',
+        details: 'og:url and og:type enhance social sharing'
+      });
+    }
+
+    if (ogSiteName) {
+      score += 5;
+    }
+  } else {
+    const missing = [
+      !ogTitle && 'og:title',
+      !ogDescription && 'og:description',
+      !ogImage && 'og:image'
+    ].filter(Boolean).join(', ');
+
+    findings.push({
+      type: 'error',
+      message: 'Missing core Open Graph tags',
+      details: `Missing: ${missing}`
+    });
+    recommendations.push({
+      priority: 'high',
+      title: 'Add Open Graph tags',
+      description: 'Open Graph tags control how your site appears when shared on Facebook, LinkedIn, and other platforms',
+      actionable: 'Add og:title, og:description, and og:image to your page metadata'
+    });
+  }
+
+  // Check Twitter Card tags (35 points)
+  const twitterCard = pageData.metaTags['twitter:card'];
+  const twitterTitle = pageData.metaTags['twitter:title'];
+  const twitterDescription = pageData.metaTags['twitter:description'];
+  const twitterImage = pageData.metaTags['twitter:image'];
+  const twitterSite = pageData.metaTags['twitter:site'];
+
+  const hasTwitterCore = !!(twitterCard && (twitterTitle || ogTitle) && (twitterImage || ogImage));
+
+  if (hasTwitterCore) {
+    score += 30;
+    findings.push({
+      type: 'success',
+      message: 'Twitter Card tags present',
+      details: `Card type: ${twitterCard}`
+    });
+
+    if (twitterSite) {
+      score += 5;
+      findings.push({
+        type: 'success',
+        message: 'Twitter site attribution configured',
+        details: `@${twitterSite.replace('@', '')}`
+      });
+    }
+  } else {
+    findings.push({
+      type: 'warning',
+      message: 'Twitter Card tags missing or incomplete',
+      details: 'Twitter will fall back to Open Graph tags, but explicit Twitter tags provide better control'
+    });
+    recommendations.push({
+      priority: 'medium',
+      title: 'Add Twitter Card tags',
+      description: 'Twitter Cards enhance how your content appears when shared on Twitter/X',
+      actionable: 'Add twitter:card (summary_large_image), twitter:title, twitter:description, and twitter:image'
+    });
+  }
+
+  // Check image quality and format (10 points bonus)
+  if (ogImage) {
+    // Check if image URL is absolute
+    if (ogImage.startsWith('http://') || ogImage.startsWith('https://')) {
+      score += 5;
+      findings.push({
+        type: 'success',
+        message: 'Open Graph image URL is absolute',
+        details: 'Image will display correctly when shared'
+      });
+    } else {
+      findings.push({
+        type: 'warning',
+        message: 'Open Graph image URL is relative',
+        details: 'Use absolute URLs (https://...) for reliable social sharing'
+      });
+      recommendations.push({
+        priority: 'medium',
+        title: 'Use absolute image URLs',
+        description: 'Relative image URLs may not work when content is shared',
+        actionable: 'Change og:image to use full https:// URL'
+      });
+    }
+
+    // Check for image dimensions tags
+    const ogImageWidth = pageData.metaTags['og:image:width'];
+    const ogImageHeight = pageData.metaTags['og:image:height'];
+
+    if (ogImageWidth && ogImageHeight) {
+      score += 5;
+      findings.push({
+        type: 'success',
+        message: 'Image dimensions specified',
+        details: `${ogImageWidth}x${ogImageHeight} - helps platforms render faster`
+      });
+    }
+  }
+
+  // Overall assessment
+  if (score >= 80) {
+    findings.push({
+      type: 'success',
+      message: 'Excellent social media optimization',
+      details: 'Your site will look great when shared on social platforms'
+    });
+  } else if (score >= 50) {
+    findings.push({
+      type: 'warning',
+      message: 'Good social media setup, but could be improved',
+      details: 'Consider adding missing tags for better social sharing'
+    });
+  } else if (score < 50 && score > 0) {
+    findings.push({
+      type: 'warning',
+      message: 'Basic social media tags present',
+      details: 'Add more tags to improve how your site appears when shared'
+    });
+  }
 
   return {
     phaseName: 'Social Media',

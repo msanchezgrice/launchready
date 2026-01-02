@@ -769,15 +769,16 @@ export async function scanProject(url: string): Promise<ScanResult> {
   const startTime = Date.now();
   console.log(`[Scanner] Starting scan for ${url}`);
 
+  // TEMP: Disabled for Phase 1-only testing (Phase 1 doesn't need Browserless)
   // Fetch page data once upfront for better performance
   // This is used by checkSEO, checkPerformance, and checkContent
-  console.log('[Scanner] Fetching page via Browserless...');
-  const fetchStart = Date.now();
-  const pageData = await fetchPage(url);
-  console.log(`[Scanner] Page fetch completed in ${Date.now() - fetchStart}ms`);
+  // console.log('[Scanner] Fetching page via Browserless...');
+  // const fetchStart = Date.now();
+  // const pageData = await fetchPage(url);
+  // console.log(`[Scanner] Page fetch completed in ${Date.now() - fetchStart}ms`);
 
   // Store in module cache for phase functions to access
-  pageCache.set(url, pageData);
+  // pageCache.set(url, pageData);
 
   try {
     // TEMP: Test with just phase 1 to isolate timeout issue
@@ -809,7 +810,8 @@ export async function scanProject(url: string): Promise<ScanResult> {
       scannedAt: new Date()
     };
   } finally {
+    // TEMP: Disabled for Phase 1-only testing
     // Clean up cache after scan completes
-    pageCache.delete(url);
+    // pageCache.delete(url);
   }
 }

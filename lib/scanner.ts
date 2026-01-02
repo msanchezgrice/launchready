@@ -263,6 +263,7 @@ export async function checkSEO(url: string): Promise<ScanPhaseResult> {
 
 /**
  * Phase 3: Performance
+ * Uses Google PageSpeed Insights API for real performance metrics
  */
 export async function checkPerformance(url: string): Promise<ScanPhaseResult> {
   const findings: Finding[] = [];
@@ -270,27 +271,217 @@ export async function checkPerformance(url: string): Promise<ScanPhaseResult> {
   let score = 0;
   const maxScore = 100;
 
-  findings.push({
-    type: 'warning',
-    message: 'Performance check requires page load',
-    details: 'Upgrade to Pro for PageSpeed Insights integration'
-  });
+  const apiKey = process.env.GOOGLE_PAGESPEED_API_KEY;
 
-  score = 50;
+  if (!apiKey) {
+    // Fallback: Basic performance checks without API
+    console.log('[Scanner:Performance] No PageSpeed API key, using basic checks');
+    
+    const pageData = pageCache.get(url);
+    if (pageData?.loaded) {
+      // Check HTML size
+      const htmlSize = pageData.html.length;
+      if (htmlSize < 100000) { // < 100KB
+        score += 30;
+        findings.push({
+          type: 'success',
+          message: 'HTML size is reasonable',
+          details: `${Math.round(htmlSize / 1024)}KB HTML document`
+        });
+      } else {
+        findings.push({
+          type: 'warning',
+          message: 'Large HTML document',
+          details: `${Math.round(htmlSize / 1024)}KB - consider optimizing`
+        });
+        recommendations.push({
+          priority: 'medium',
+          title: 'Reduce HTML size',
+          description: 'Large HTML documents slow down initial page load',
+          actionable: 'Remove unused code, minify HTML, use code splitting'
+        });
+      }
 
-  recommendations.push({
-    priority: 'high',
-    title: 'Optimize images',
-    description: 'Compress and serve images in modern formats (WebP, AVIF)',
-    actionable: 'Use Next.js Image component for automatic optimization'
-  });
+      // Check number of scripts
+      const scriptCount = pageData.scripts.length;
+      if (scriptCount <= 10) {
+        score += 20;
+        findings.push({
+          type: 'success',
+          message: 'Reasonable number of scripts',
+          details: `${scriptCount} scripts detected`
+        });
+      } else {
+        findings.push({
+          type: 'warning',
+          message: 'Many scripts detected',
+          details: `${scriptCount} scripts may impact load time`
+        });
+        recommendations.push({
+          priority: 'high',
+          title: 'Reduce JavaScript',
+          description: 'Too many scripts slow down page load and interactivity',
+          actionable: 'Bundle scripts, remove unused dependencies, use code splitting'
+        });
+      }
 
-  recommendations.push({
-    priority: 'medium',
-    title: 'Enable caching',
-    description: 'Configure proper cache headers for static assets',
-    actionable: 'Set up CDN with Vercel or Cloudflare'
-  });
+      score += 20; // Base score for loaded page
+    }
+
+    // Generic recommendations
+    recommendations.push({
+      priority: 'high',
+      title: 'Optimize images',
+      description: 'Compress and serve images in modern formats (WebP, AVIF)',
+      actionable: 'Use Next.js Image component for automatic optimization'
+    });
+
+    recommendations.push({
+      priority: 'medium',
+      title: 'Enable caching',
+      description: 'Configure proper cache headers for static assets',
+      actionable: 'Set up CDN with Vercel or Cloudflare'
+    });
+
+    return { phaseName: 'Performance', score: Math.max(score, 40), maxScore, findings, recommendations };
+  }
+
+  // Use Google PageSpeed Insights API
+  try {
+    console.log('[Scanner:Performance] Fetching PageSpeed Insights...');
+    const apiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&key=${apiKey}&category=performance&strategy=mobile`;
+    
+    const response = await fetch(apiUrl, { 
+      signal: AbortSignal.timeout(30000) // 30s timeout
+    });
+
+    if (!response.ok) {
+      throw new Error(`PageSpeed API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const lighthouse = data.lighthouseResult;
+
+    if (lighthouse) {
+      // Get performance score (0-1, convert to 0-100)
+      const perfScore = Math.round((lighthouse.categories?.performance?.score || 0) * 100);
+      score = perfScore;
+
+      findings.push({
+        type: perfScore >= 90 ? 'success' : perfScore >= 50 ? 'warning' : 'error',
+        message: `Performance Score: ${perfScore}/100`,
+        details: 'Based on Google Lighthouse mobile audit'
+      });
+
+      // Core Web Vitals
+      const audits = lighthouse.audits || {};
+      
+      // LCP - Largest Contentful Paint
+      const lcp = audits['largest-contentful-paint'];
+      if (lcp) {
+        const lcpValue = lcp.numericValue / 1000; // Convert to seconds
+        findings.push({
+          type: lcpValue <= 2.5 ? 'success' : lcpValue <= 4 ? 'warning' : 'error',
+          message: `LCP: ${lcpValue.toFixed(1)}s`,
+          details: lcpValue <= 2.5 ? 'Good (≤2.5s)' : lcpValue <= 4 ? 'Needs Improvement (2.5-4s)' : 'Poor (>4s)'
+        });
+        if (lcpValue > 2.5) {
+          recommendations.push({
+            priority: 'high',
+            title: 'Improve Largest Contentful Paint',
+            description: `LCP is ${lcpValue.toFixed(1)}s, should be under 2.5s`,
+            actionable: 'Optimize images, reduce server response time, remove render-blocking resources'
+          });
+        }
+      }
+
+      // FID / TBT - Total Blocking Time (proxy for FID)
+      const tbt = audits['total-blocking-time'];
+      if (tbt) {
+        const tbtValue = tbt.numericValue; // In milliseconds
+        findings.push({
+          type: tbtValue <= 200 ? 'success' : tbtValue <= 600 ? 'warning' : 'error',
+          message: `Total Blocking Time: ${Math.round(tbtValue)}ms`,
+          details: tbtValue <= 200 ? 'Good (≤200ms)' : tbtValue <= 600 ? 'Needs Improvement' : 'Poor (>600ms)'
+        });
+        if (tbtValue > 200) {
+          recommendations.push({
+            priority: 'high',
+            title: 'Reduce JavaScript execution time',
+            description: 'Long tasks block the main thread and delay interactivity',
+            actionable: 'Break up long tasks, remove unused JavaScript, defer non-critical scripts'
+          });
+        }
+      }
+
+      // CLS - Cumulative Layout Shift
+      const cls = audits['cumulative-layout-shift'];
+      if (cls) {
+        const clsValue = cls.numericValue;
+        findings.push({
+          type: clsValue <= 0.1 ? 'success' : clsValue <= 0.25 ? 'warning' : 'error',
+          message: `CLS: ${clsValue.toFixed(3)}`,
+          details: clsValue <= 0.1 ? 'Good (≤0.1)' : clsValue <= 0.25 ? 'Needs Improvement' : 'Poor (>0.25)'
+        });
+        if (clsValue > 0.1) {
+          recommendations.push({
+            priority: 'medium',
+            title: 'Reduce layout shifts',
+            description: 'Content is moving around as the page loads',
+            actionable: 'Add size attributes to images/videos, avoid inserting content above existing content'
+          });
+        }
+      }
+
+      // Speed Index
+      const speedIndex = audits['speed-index'];
+      if (speedIndex) {
+        const siValue = speedIndex.numericValue / 1000;
+        findings.push({
+          type: siValue <= 3.4 ? 'success' : siValue <= 5.8 ? 'warning' : 'error',
+          message: `Speed Index: ${siValue.toFixed(1)}s`,
+          details: 'How quickly content is visually displayed'
+        });
+      }
+
+      // First Contentful Paint
+      const fcp = audits['first-contentful-paint'];
+      if (fcp) {
+        const fcpValue = fcp.numericValue / 1000;
+        findings.push({
+          type: fcpValue <= 1.8 ? 'success' : fcpValue <= 3 ? 'warning' : 'error',
+          message: `First Contentful Paint: ${fcpValue.toFixed(1)}s`,
+          details: 'Time until first content appears'
+        });
+      }
+
+    } else {
+      throw new Error('No Lighthouse data in response');
+    }
+
+  } catch (error) {
+    console.error('[Scanner:Performance] PageSpeed API failed:', error);
+    score = 50;
+    findings.push({
+      type: 'warning',
+      message: 'Could not fetch PageSpeed data',
+      details: error instanceof Error ? error.message : 'API request failed'
+    });
+
+    recommendations.push({
+      priority: 'high',
+      title: 'Optimize images',
+      description: 'Compress and serve images in modern formats (WebP, AVIF)',
+      actionable: 'Use Next.js Image component for automatic optimization'
+    });
+
+    recommendations.push({
+      priority: 'medium',
+      title: 'Enable caching',
+      description: 'Configure proper cache headers for static assets',
+      actionable: 'Set up CDN with Vercel or Cloudflare'
+    });
+  }
 
   return {
     phaseName: 'Performance',
@@ -303,6 +494,7 @@ export async function checkPerformance(url: string): Promise<ScanPhaseResult> {
 
 /**
  * Phase 4: Security
+ * Checks HTTPS, security headers, and common vulnerabilities
  */
 export async function checkSecurity(url: string): Promise<ScanPhaseResult> {
   const findings: Finding[] = [];
@@ -312,21 +504,208 @@ export async function checkSecurity(url: string): Promise<ScanPhaseResult> {
 
   const urlObj = new URL(url);
 
+  // Check HTTPS (30 points)
   if (urlObj.protocol === 'https:') {
-    score += 50;
+    score += 30;
     findings.push({
       type: 'success',
       message: 'HTTPS enabled',
-      details: 'Basic transport security is in place'
+      details: 'Encrypted connection protects data in transit'
+    });
+  } else {
+    findings.push({
+      type: 'error',
+      message: 'HTTPS not enabled',
+      details: 'Data is transmitted in plain text'
+    });
+    recommendations.push({
+      priority: 'high',
+      title: 'Enable HTTPS',
+      description: 'All modern sites should use HTTPS',
+      actionable: 'Get an SSL certificate (free via Let\'s Encrypt or your host)'
     });
   }
 
-  recommendations.push({
-    priority: 'high',
-    title: 'Add security headers',
-    description: 'Implement CSP, X-Frame-Options, etc.',
-    actionable: 'Configure security headers in next.config.js'
-  });
+  // Fetch headers to check security configuration
+  try {
+    console.log('[Scanner:Security] Checking security headers...');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch(url, {
+      method: 'HEAD',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; LaunchReady/1.0; +https://launchready.me)'
+      },
+      signal: controller.signal,
+      redirect: 'follow'
+    });
+    clearTimeout(timeoutId);
+
+    const headers = response.headers;
+
+    // Check Strict-Transport-Security (HSTS) - 15 points
+    const hsts = headers.get('strict-transport-security');
+    if (hsts) {
+      score += 15;
+      findings.push({
+        type: 'success',
+        message: 'HSTS enabled',
+        details: 'Forces browsers to use HTTPS'
+      });
+    } else {
+      recommendations.push({
+        priority: 'high',
+        title: 'Add HSTS header',
+        description: 'Strict-Transport-Security prevents protocol downgrade attacks',
+        actionable: 'Add header: Strict-Transport-Security: max-age=31536000; includeSubDomains'
+      });
+    }
+
+    // Check X-Frame-Options or CSP frame-ancestors - 10 points
+    const xfo = headers.get('x-frame-options');
+    const csp = headers.get('content-security-policy');
+    const hasFrameProtection = xfo || csp?.includes('frame-ancestors');
+    if (hasFrameProtection) {
+      score += 10;
+      findings.push({
+        type: 'success',
+        message: 'Clickjacking protection enabled',
+        details: xfo ? `X-Frame-Options: ${xfo}` : 'CSP frame-ancestors configured'
+      });
+    } else {
+      recommendations.push({
+        priority: 'medium',
+        title: 'Add clickjacking protection',
+        description: 'Prevent your site from being embedded in malicious frames',
+        actionable: 'Add header: X-Frame-Options: DENY or Content-Security-Policy: frame-ancestors \'none\''
+      });
+    }
+
+    // Check X-Content-Type-Options - 10 points
+    const xcto = headers.get('x-content-type-options');
+    if (xcto === 'nosniff') {
+      score += 10;
+      findings.push({
+        type: 'success',
+        message: 'MIME sniffing protection enabled',
+        details: 'X-Content-Type-Options: nosniff'
+      });
+    } else {
+      recommendations.push({
+        priority: 'medium',
+        title: 'Add X-Content-Type-Options',
+        description: 'Prevents browsers from MIME-sniffing responses',
+        actionable: 'Add header: X-Content-Type-Options: nosniff'
+      });
+    }
+
+    // Check Content-Security-Policy - 15 points
+    if (csp) {
+      score += 15;
+      findings.push({
+        type: 'success',
+        message: 'Content Security Policy configured',
+        details: 'CSP helps prevent XSS and data injection attacks'
+      });
+    } else {
+      recommendations.push({
+        priority: 'high',
+        title: 'Add Content Security Policy',
+        description: 'CSP is the most effective protection against XSS attacks',
+        actionable: 'Start with: Content-Security-Policy: default-src \'self\'; script-src \'self\''
+      });
+    }
+
+    // Check X-XSS-Protection (legacy but still useful) - 5 points
+    const xxss = headers.get('x-xss-protection');
+    if (xxss) {
+      score += 5;
+      findings.push({
+        type: 'success',
+        message: 'XSS filter enabled',
+        details: `X-XSS-Protection: ${xxss}`
+      });
+    }
+
+    // Check Referrer-Policy - 5 points
+    const refPolicy = headers.get('referrer-policy');
+    if (refPolicy) {
+      score += 5;
+      findings.push({
+        type: 'success',
+        message: 'Referrer policy configured',
+        details: `Referrer-Policy: ${refPolicy}`
+      });
+    } else {
+      recommendations.push({
+        priority: 'low',
+        title: 'Add Referrer-Policy',
+        description: 'Controls how much referrer information is shared',
+        actionable: 'Add header: Referrer-Policy: strict-origin-when-cross-origin'
+      });
+    }
+
+    // Check Permissions-Policy - 10 points
+    const permPolicy = headers.get('permissions-policy') || headers.get('feature-policy');
+    if (permPolicy) {
+      score += 10;
+      findings.push({
+        type: 'success',
+        message: 'Permissions Policy configured',
+        details: 'Controls browser feature access'
+      });
+    } else {
+      recommendations.push({
+        priority: 'low',
+        title: 'Add Permissions-Policy',
+        description: 'Control which browser features your site can use',
+        actionable: 'Add header: Permissions-Policy: geolocation=(), microphone=(), camera=()'
+      });
+    }
+
+  } catch (error) {
+    console.log('[Scanner:Security] Could not fetch headers:', error);
+    // Still give points for HTTPS if enabled
+    score = Math.max(score, urlObj.protocol === 'https:' ? 40 : 10);
+    findings.push({
+      type: 'warning',
+      message: 'Could not check security headers',
+      details: 'Headers check timed out or failed'
+    });
+  }
+
+  // Check page content for potential issues
+  const pageData = pageCache.get(url);
+  if (pageData?.loaded) {
+    // Check for inline event handlers (potential XSS vectors)
+    const inlineHandlers = pageData.html.match(/\bon\w+\s*=\s*["'][^"']+["']/gi);
+    if (inlineHandlers && inlineHandlers.length > 10) {
+      findings.push({
+        type: 'warning',
+        message: 'Many inline event handlers detected',
+        details: `${inlineHandlers.length} inline handlers - consider moving to external scripts`
+      });
+    }
+
+    // Check for mixed content warnings
+    if (urlObj.protocol === 'https:' && pageData.html.includes('http://')) {
+      const httpResources = pageData.html.match(/http:\/\/[^"'\s]+\.(js|css|jpg|png|gif)/gi);
+      if (httpResources && httpResources.length > 0) {
+        findings.push({
+          type: 'warning',
+          message: 'Potential mixed content',
+          details: `Found ${httpResources.length} HTTP resources on HTTPS page`
+        });
+        recommendations.push({
+          priority: 'medium',
+          title: 'Fix mixed content',
+          description: 'HTTP resources on HTTPS pages cause security warnings',
+          actionable: 'Update all resource URLs to use HTTPS'
+        });
+      }
+    }
+  }
 
   recommendations.push({
     priority: 'medium',
@@ -682,6 +1061,7 @@ export async function checkSocial(url: string): Promise<ScanPhaseResult> {
 
 /**
  * Phase 7: Content Quality
+ * Uses OpenAI GPT-4 for intelligent content analysis
  */
 export async function checkContent(url: string): Promise<ScanPhaseResult> {
   const findings: Finding[] = [];
@@ -689,27 +1069,290 @@ export async function checkContent(url: string): Promise<ScanPhaseResult> {
   let score = 0;
   const maxScore = 100;
 
-  findings.push({
-    type: 'warning',
-    message: 'Content analysis requires AI',
-    details: 'Upgrade to Pro for GPT-4 powered content audit'
-  });
+  const apiKey = process.env.OPENAI_API_KEY;
+  const pageData = pageCache.get(url);
 
-  score = 40;
+  if (!apiKey || !pageData?.loaded) {
+    // Fallback: Basic content checks without AI
+    console.log('[Scanner:Content] No OpenAI API key or page not loaded, using basic checks');
+    
+    if (pageData?.loaded) {
+      // Check for value proposition indicators
+      const html = pageData.html.toLowerCase();
+      const title = pageData.title?.toLowerCase() || '';
+      const description = pageData.metaTags['description']?.toLowerCase() || '';
+      
+      // Check for clear CTA
+      const ctaPatterns = [
+        /sign\s*up/i, /get\s*started/i, /try\s*(it\s*)?free/i, /start\s*(your\s*)?(free\s*)?trial/i,
+        /book\s*(a\s*)?demo/i, /contact\s*us/i, /learn\s*more/i, /buy\s*now/i, /subscribe/i
+      ];
+      const hasCTA = ctaPatterns.some(pattern => pattern.test(html));
+      if (hasCTA) {
+        score += 25;
+        findings.push({
+          type: 'success',
+          message: 'Call-to-action detected',
+          details: 'Page has clear user action prompts'
+        });
+      } else {
+        recommendations.push({
+          priority: 'high',
+          title: 'Add clear call-to-action',
+          description: 'Every landing page needs a clear next step for visitors',
+          actionable: 'Add prominent "Get Started", "Sign Up", or "Learn More" buttons'
+        });
+      }
 
-  recommendations.push({
-    priority: 'high',
-    title: 'Write compelling copy',
-    description: 'Clear value proposition above the fold',
-    actionable: 'Answer: What problem do you solve? Why should I care?'
-  });
+      // Check for social proof indicators
+      const socialProofPatterns = [
+        /testimonial/i, /review/i, /customer/i, /trusted\s*by/i, /used\s*by/i,
+        /\d+\s*(k|\+)?\s*(users|customers|companies)/i, /as\s*seen\s*(on|in)/i,
+        /rating/i, /stars?/i
+      ];
+      const hasSocialProof = socialProofPatterns.some(pattern => pattern.test(html));
+      if (hasSocialProof) {
+        score += 20;
+        findings.push({
+          type: 'success',
+          message: 'Social proof detected',
+          details: 'Testimonials, reviews, or trust indicators found'
+        });
+      } else {
+        recommendations.push({
+          priority: 'medium',
+          title: 'Add social proof',
+          description: 'Include testimonials, logos, or metrics to build trust',
+          actionable: 'Feature 3-5 customer quotes, company logos, or usage stats'
+        });
+      }
 
-  recommendations.push({
-    priority: 'medium',
-    title: 'Add social proof',
-    description: 'Include testimonials, logos, or metrics',
-    actionable: 'Feature 3-5 customer quotes or trust badges'
-  });
+      // Check title quality
+      if (title.length >= 30 && title.length <= 70) {
+        score += 15;
+        findings.push({
+          type: 'success',
+          message: 'Page title is well-sized',
+          details: `${title.length} characters - good for readability`
+        });
+      }
+
+      // Check for headline (H1)
+      const h1Match = pageData.html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+      if (h1Match && h1Match[1].length > 10) {
+        score += 15;
+        findings.push({
+          type: 'success',
+          message: 'Main headline (H1) present',
+          details: `"${h1Match[1].substring(0, 50)}${h1Match[1].length > 50 ? '...' : ''}"`
+        });
+      } else {
+        recommendations.push({
+          priority: 'high',
+          title: 'Add compelling headline',
+          description: 'Your H1 should clearly communicate your value proposition',
+          actionable: 'Write a headline that answers "What do you offer and why should I care?"'
+        });
+      }
+
+      // Base score for having content
+      score += 15;
+    }
+
+    // Generic recommendations
+    recommendations.push({
+      priority: 'high',
+      title: 'Write compelling copy',
+      description: 'Clear value proposition above the fold',
+      actionable: 'Answer: What problem do you solve? Why should I care?'
+    });
+
+    return { phaseName: 'Content Quality', score: Math.max(score, 35), maxScore, findings, recommendations };
+  }
+
+  // Use OpenAI GPT-4 for intelligent content analysis
+  try {
+    console.log('[Scanner:Content] Analyzing content with GPT-4...');
+    
+    // Extract visible text content (simplified)
+    const textContent = pageData.html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 4000); // Limit for API
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini', // Cost-effective model
+        messages: [
+          {
+            role: 'system',
+            content: `You are a landing page optimization expert. Analyze the provided page content and return a JSON object with:
+- score: number 0-100 (overall content quality)
+- valueProposition: { clear: boolean, message: string }
+- headline: { effective: boolean, feedback: string }
+- cta: { present: boolean, clear: boolean, feedback: string }
+- socialProof: { present: boolean, type: string }
+- readability: { score: "good"|"fair"|"poor", feedback: string }
+- improvements: array of { priority: "high"|"medium"|"low", issue: string, fix: string }
+Be concise. Return only valid JSON.`
+          },
+          {
+            role: 'user',
+            content: `Analyze this landing page content:\n\nTitle: ${pageData.title}\nDescription: ${pageData.metaTags['description'] || 'None'}\n\nContent:\n${textContent}`
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 800
+      }),
+      signal: AbortSignal.timeout(20000) // 20s timeout
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    
+    if (content) {
+      // Parse JSON response
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const analysis = JSON.parse(jsonMatch[0]);
+        
+        score = analysis.score || 50;
+
+        // Value Proposition
+        if (analysis.valueProposition?.clear) {
+          findings.push({
+            type: 'success',
+            message: 'Clear value proposition',
+            details: analysis.valueProposition.message
+          });
+        } else {
+          findings.push({
+            type: 'warning',
+            message: 'Value proposition unclear',
+            details: analysis.valueProposition?.message || 'Visitors may not understand what you offer'
+          });
+          recommendations.push({
+            priority: 'high',
+            title: 'Clarify your value proposition',
+            description: 'Visitors should instantly understand what you offer',
+            actionable: 'Lead with the main benefit in your headline'
+          });
+        }
+
+        // Headline
+        if (analysis.headline?.effective) {
+          findings.push({
+            type: 'success',
+            message: 'Effective headline',
+            details: analysis.headline.feedback
+          });
+        } else {
+          findings.push({
+            type: 'warning',
+            message: 'Headline needs work',
+            details: analysis.headline?.feedback || 'Could be more compelling'
+          });
+        }
+
+        // CTA
+        if (analysis.cta?.present && analysis.cta?.clear) {
+          findings.push({
+            type: 'success',
+            message: 'Clear call-to-action',
+            details: analysis.cta.feedback
+          });
+        } else if (analysis.cta?.present) {
+          findings.push({
+            type: 'warning',
+            message: 'CTA could be clearer',
+            details: analysis.cta?.feedback
+          });
+        } else {
+          findings.push({
+            type: 'error',
+            message: 'Missing call-to-action',
+            details: 'No clear next step for visitors'
+          });
+          recommendations.push({
+            priority: 'high',
+            title: 'Add clear call-to-action',
+            description: 'Every page needs a clear next step',
+            actionable: 'Add prominent action buttons above the fold'
+          });
+        }
+
+        // Social Proof
+        if (analysis.socialProof?.present) {
+          findings.push({
+            type: 'success',
+            message: 'Social proof present',
+            details: `Type: ${analysis.socialProof.type}`
+          });
+        } else {
+          recommendations.push({
+            priority: 'medium',
+            title: 'Add social proof',
+            description: 'Testimonials and trust signals increase conversions',
+            actionable: 'Add customer quotes, logos, or metrics'
+          });
+        }
+
+        // Readability
+        findings.push({
+          type: analysis.readability?.score === 'good' ? 'success' : 'warning',
+          message: `Readability: ${analysis.readability?.score || 'unknown'}`,
+          details: analysis.readability?.feedback || ''
+        });
+
+        // Add AI-generated improvements
+        if (analysis.improvements && Array.isArray(analysis.improvements)) {
+          for (const improvement of analysis.improvements.slice(0, 3)) {
+            recommendations.push({
+              priority: improvement.priority || 'medium',
+              title: improvement.issue,
+              description: improvement.fix,
+              actionable: improvement.fix
+            });
+          }
+        }
+      }
+    }
+
+  } catch (error) {
+    console.error('[Scanner:Content] OpenAI API failed:', error);
+    score = 45;
+    findings.push({
+      type: 'warning',
+      message: 'AI content analysis unavailable',
+      details: error instanceof Error ? error.message : 'Could not analyze content'
+    });
+
+    recommendations.push({
+      priority: 'high',
+      title: 'Write compelling copy',
+      description: 'Clear value proposition above the fold',
+      actionable: 'Answer: What problem do you solve? Why should I care?'
+    });
+
+    recommendations.push({
+      priority: 'medium',
+      title: 'Add social proof',
+      description: 'Include testimonials, logos, or metrics',
+      actionable: 'Feature 3-5 customer quotes or trust badges'
+    });
+  }
 
   return {
     phaseName: 'Content Quality',
@@ -722,6 +1365,7 @@ export async function checkContent(url: string): Promise<ScanPhaseResult> {
 
 /**
  * Phase 8: Monitoring
+ * Detects error tracking, logging, and monitoring tools
  */
 export async function checkMonitoring(url: string): Promise<ScanPhaseResult> {
   const findings: Finding[] = [];
@@ -729,27 +1373,214 @@ export async function checkMonitoring(url: string): Promise<ScanPhaseResult> {
   let score = 0;
   const maxScore = 100;
 
-  score = 20; // Default low score for monitoring
+  const pageData = pageCache.get(url);
 
-  recommendations.push({
-    priority: 'high',
-    title: 'Set up error tracking',
-    description: 'Install Sentry or similar error monitoring',
-    actionable: 'Catch and track production errors before users report them'
-  });
+  if (!pageData?.loaded) {
+    score = 20;
+    findings.push({
+      type: 'warning',
+      message: 'Could not analyze monitoring setup',
+      details: 'Page data not available'
+    });
+  } else {
+    // Error tracking/monitoring detection patterns
+    const monitoringPatterns = {
+      'Sentry': [
+        /sentry\.io/i,
+        /sentry-cdn/i,
+        /Sentry\.init\(/i,
+        /@sentry\//i,
+        /dsn.*sentry/i
+      ],
+      'BugSnag': [
+        /bugsnag/i,
+        /Bugsnag\.start\(/i
+      ],
+      'Rollbar': [
+        /rollbar\.com/i,
+        /Rollbar\.init\(/i
+      ],
+      'LogRocket': [
+        /logrocket/i,
+        /LogRocket\.init\(/i
+      ],
+      'Datadog': [
+        /datadoghq/i,
+        /DD_RUM/i,
+        /datadog-rum/i
+      ],
+      'New Relic': [
+        /newrelic/i,
+        /NREUM/i,
+        /nr-rum/i
+      ],
+      'Raygun': [
+        /raygun/i,
+        /Raygun\.init\(/i
+      ],
+      'TrackJS': [
+        /trackjs/i
+      ],
+      'Airbrake': [
+        /airbrake/i
+      ],
+      'FullStory': [
+        /fullstory/i,
+        /FullStory\.init\(/i
+      ],
+      'Clarity': [
+        /clarity\.ms/i
+      ],
+      'Vercel Analytics': [
+        /vercel-analytics/i,
+        /_vercel/i,
+        /vitals\.vercel-analytics/i
+      ],
+      'Vercel Speed Insights': [
+        /speed-insights/i,
+        /@vercel\/speed-insights/i
+      ]
+    };
 
+    const detectedTools: string[] = [];
+
+    // Check scripts
+    for (const script of pageData.scripts) {
+      for (const [toolName, patterns] of Object.entries(monitoringPatterns)) {
+        if (patterns.some(pattern => pattern.test(script))) {
+          if (!detectedTools.includes(toolName)) {
+            detectedTools.push(toolName);
+          }
+        }
+      }
+    }
+
+    // Check HTML for inline monitoring code
+    for (const [toolName, patterns] of Object.entries(monitoringPatterns)) {
+      if (patterns.some(pattern => pattern.test(pageData.html))) {
+        if (!detectedTools.includes(toolName)) {
+          detectedTools.push(toolName);
+        }
+      }
+    }
+
+    // Categorize detected tools
+    const errorTrackers = detectedTools.filter(t => 
+      ['Sentry', 'BugSnag', 'Rollbar', 'Raygun', 'TrackJS', 'Airbrake'].includes(t)
+    );
+    const sessionRecorders = detectedTools.filter(t =>
+      ['LogRocket', 'FullStory', 'Clarity'].includes(t)
+    );
+    const apm = detectedTools.filter(t =>
+      ['Datadog', 'New Relic', 'Vercel Analytics', 'Vercel Speed Insights'].includes(t)
+    );
+
+    // Score based on detection
+    if (errorTrackers.length > 0) {
+      score += 40;
+      findings.push({
+        type: 'success',
+        message: `Error tracking: ${errorTrackers.join(', ')}`,
+        details: 'Errors are being captured and monitored'
+      });
+    } else {
+      findings.push({
+        type: 'error',
+        message: 'No error tracking detected',
+        details: 'Production errors may go unnoticed'
+      });
+      recommendations.push({
+        priority: 'high',
+        title: 'Set up error tracking',
+        description: 'Catch and track production errors before users report them',
+        actionable: 'Install Sentry (free tier available) - npm install @sentry/nextjs'
+      });
+    }
+
+    if (sessionRecorders.length > 0) {
+      score += 20;
+      findings.push({
+        type: 'success',
+        message: `Session recording: ${sessionRecorders.join(', ')}`,
+        details: 'User sessions are being recorded for debugging'
+      });
+    } else {
+      recommendations.push({
+        priority: 'low',
+        title: 'Consider session recording',
+        description: 'See exactly what users experience when issues occur',
+        actionable: 'Try LogRocket, FullStory, or Microsoft Clarity (free)'
+      });
+    }
+
+    if (apm.length > 0) {
+      score += 25;
+      findings.push({
+        type: 'success',
+        message: `Performance monitoring: ${apm.join(', ')}`,
+        details: 'Application performance is being tracked'
+      });
+    } else {
+      recommendations.push({
+        priority: 'medium',
+        title: 'Add performance monitoring',
+        description: 'Track Core Web Vitals and server performance',
+        actionable: 'Enable Vercel Analytics or add Datadog RUM'
+      });
+    }
+
+    // Check for robots.txt (indicates some site management)
+    try {
+      const robotsUrl = new URL('/robots.txt', url).toString();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const robotsResponse = await fetch(robotsUrl, {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'LaunchReady/1.0' }
+      });
+      clearTimeout(timeoutId);
+      
+      if (robotsResponse.ok) {
+        score += 10;
+        findings.push({
+          type: 'success',
+          message: 'robots.txt present',
+          details: 'Search engine crawling is configured'
+        });
+      }
+    } catch {
+      // robots.txt check failed, not critical
+    }
+
+    // Check for sitemap
+    const hasSitemap = pageData.html.includes('sitemap') || 
+                       pageData.metaTags['sitemap'] !== undefined;
+    if (hasSitemap) {
+      score += 5;
+      findings.push({
+        type: 'success',
+        message: 'Sitemap reference found',
+        details: 'Helps search engines discover all pages'
+      });
+    }
+
+    // No tools detected at all
+    if (detectedTools.length === 0) {
+      score = 15;
+      findings.push({
+        type: 'warning',
+        message: 'No monitoring tools detected',
+        details: 'Consider adding error tracking and analytics'
+      });
+    }
+  }
+
+  // Always recommend uptime monitoring (can't detect from page)
   recommendations.push({
     priority: 'high',
     title: 'Configure uptime monitoring',
     description: 'Get alerted if your site goes down',
-    actionable: 'Use UptimeRobot, Pingdom, or Vercel monitoring'
-  });
-
-  recommendations.push({
-    priority: 'medium',
-    title: 'Monitor performance',
-    description: 'Track Core Web Vitals and load times',
-    actionable: 'Set up Web Vitals tracking in analytics'
+    actionable: 'Use UptimeRobot (free), Pingdom, or Better Stack'
   });
 
   return {

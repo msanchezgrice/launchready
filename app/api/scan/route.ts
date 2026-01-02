@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { scanProject } from '@/lib/scanner';
 
+// Allow up to 60 seconds for scanning (Vercel Pro/Hobby limit)
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

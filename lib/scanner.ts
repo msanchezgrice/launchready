@@ -3,7 +3,10 @@
  * Performs 8-phase readiness assessment on any URL
  */
 
-import { fetchPage } from './page-fetcher';
+import { fetchPage, type PageData } from './page-fetcher';
+
+// Module-level cache to avoid redundant page fetches during a single scan
+const pageCache = new Map<string, PageData>();
 
 export interface ScanPhaseResult {
   phaseName: string;
@@ -126,8 +129,8 @@ export async function checkSEO(url: string): Promise<ScanPhaseResult> {
   let score = 0;
   const maxScore = 100;
 
-  // Fetch the page
-  const pageData = await fetchPage(url);
+  // Get cached page data (fetched once in scanProject)
+  const pageData = pageCache.get(url) || await fetchPage(url);
 
   if (!pageData.loaded) {
     findings.push({
@@ -350,8 +353,8 @@ export async function checkAnalytics(url: string): Promise<ScanPhaseResult> {
   let score = 0;
   const maxScore = 100;
 
-  // Fetch the page
-  const pageData = await fetchPage(url);
+  // Get cached page data (fetched once in scanProject)
+  const pageData = pageCache.get(url) || await fetchPage(url);
 
   if (!pageData.loaded) {
     findings.push({
@@ -507,8 +510,8 @@ export async function checkSocial(url: string): Promise<ScanPhaseResult> {
   let score = 0;
   const maxScore = 100;
 
-  // Fetch the page
-  const pageData = await fetchPage(url);
+  // Get cached page data (fetched once in scanProject)
+  const pageData = pageCache.get(url) || await fetchPage(url);
 
   if (!pageData.loaded) {
     findings.push({
@@ -760,28 +763,41 @@ export async function checkMonitoring(url: string): Promise<ScanPhaseResult> {
 
 /**
  * Main scanning function - runs all 8 phases
+ * Optimized to fetch page data once and reuse it
  */
 export async function scanProject(url: string): Promise<ScanResult> {
-  const phases = await Promise.all([
-    checkDomain(url),
-    checkSEO(url),
-    checkPerformance(url),
-    checkSecurity(url),
-    checkAnalytics(url),
-    checkSocial(url),
-    checkContent(url),
-    checkMonitoring(url)
-  ]);
+  // Fetch page data once upfront for better performance
+  // This is used by checkSEO, checkPerformance, and checkContent
+  const pageData = await fetchPage(url);
 
-  const totalScore = phases.reduce((sum, phase) => sum + phase.score, 0);
-  const maxScore = phases.reduce((sum, phase) => sum + phase.maxScore, 0);
-  const score = Math.round((totalScore / maxScore) * 100);
+  // Store in module cache for phase functions to access
+  pageCache.set(url, pageData);
 
-  return {
-    url,
-    score,
-    maxScore: 100,
-    phases,
-    scannedAt: new Date()
-  };
+  try {
+    const phases = await Promise.all([
+      checkDomain(url),
+      checkSEO(url),
+      checkPerformance(url),
+      checkSecurity(url),
+      checkAnalytics(url),
+      checkSocial(url),
+      checkContent(url),
+      checkMonitoring(url)
+    ]);
+
+    const totalScore = phases.reduce((sum, phase) => sum + phase.score, 0);
+    const maxScore = phases.reduce((sum, phase) => sum + phase.maxScore, 0);
+    const score = Math.round((totalScore / maxScore) * 100);
+
+    return {
+      url,
+      score,
+      maxScore: 100,
+      phases,
+      scannedAt: new Date()
+    };
+  } finally {
+    // Clean up cache after scan completes
+    pageCache.delete(url);
+  }
 }

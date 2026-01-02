@@ -67,6 +67,7 @@ export function isRedisConfigured(): boolean {
 /**
  * Get Redis connection options for Bull queue
  * Bull needs separate options format
+ * IMPORTANT: Upstash (serverless Redis) requires special settings for Bull
  */
 export function getBullRedisOptions() {
   const redisUrl = process.env.UPSTASH_REDIS_URL;
@@ -83,7 +84,11 @@ export function getBullRedisOptions() {
     port: parseInt(url.port) || 6379,
     password: url.password || undefined,
     tls: redisUrl.startsWith('rediss://') ? {} : undefined,
-    maxRetriesPerRequest: 3,
+    // CRITICAL for Upstash: These settings are required for Bull to work with serverless Redis
+    // maxRetriesPerRequest: null prevents Bull from timing out on blocking commands
+    // enableReadyCheck: false prevents issues with Upstash's connection handling
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
   };
 }
 

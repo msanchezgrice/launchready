@@ -774,16 +774,17 @@ export async function scanProject(url: string): Promise<ScanResult> {
   pageCache.set(url, pageData);
 
   try {
-    const phases = await Promise.all([
-      checkDomain(url),
-      checkSEO(url),
-      checkPerformance(url),
-      checkSecurity(url),
-      checkAnalytics(url),
-      checkSocial(url),
-      checkContent(url),
-      checkMonitoring(url)
-    ]);
+    // Run phases sequentially to avoid timeout and reduce concurrent load
+    const phases = [
+      await checkDomain(url),
+      await checkSEO(url),
+      await checkPerformance(url),
+      await checkSecurity(url),
+      await checkAnalytics(url),
+      await checkSocial(url),
+      await checkContent(url),
+      await checkMonitoring(url)
+    ];
 
     const totalScore = phases.reduce((sum, phase) => sum + phase.score, 0);
     const maxScore = phases.reduce((sum, phase) => sum + phase.maxScore, 0);

@@ -21,24 +21,30 @@ export interface PageData {
 export async function fetchPage(url: string): Promise<PageData> {
   const browserlessApiKey = process.env.BROWSERLESS_API_KEY;
 
+  console.log('[PageFetcher] Starting fetch for:', url);
+  console.log('[PageFetcher] API key exists:', !!browserlessApiKey);
+
   if (!browserlessApiKey) {
-    return {
-      html: '',
-      title: '',
-      metaTags: {},
-      scripts: [],
-      loaded: false,
-      error: 'Browserless API key not configured'
-    };
+    console.error('[PageFetcher] ERROR: Browserless API key not configured');
+    throw new Error('Browserless API key not configured');
   }
 
   let browser;
 
   try {
-    // Connect to Browserless WebSocket endpoint
+    // Connect to Browserless WebSocket endpoint with timeout
     const browserlessUrl = `wss://chrome.browserless.io?token=${browserlessApiKey}`;
+    console.log('[PageFetcher] Connecting to Browserless WebSocket...');
 
-    browser = await chromium.connect(browserlessUrl);
+    // Wrap connection in a timeout
+    browser = await Promise.race([
+      chromium.connect(browserlessUrl),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Browserless connection timeout (30s)')), 30000)
+      )
+    ]) as any;
+
+    console.log('[PageFetcher] Connected! Creating browser context...');
 
     const context = await browser.newContext({
       userAgent: 'LaunchReady Scanner Bot/1.0'
@@ -46,11 +52,14 @@ export async function fetchPage(url: string): Promise<PageData> {
 
     const page = await context.newPage();
 
+    console.log('[PageFetcher] Navigating to page...');
     // Set timeout and navigate
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
-      timeout: 10000 // 10 second timeout
+      timeout: 15000 // 15 second timeout
     });
+
+    console.log('[PageFetcher] Page loaded, extracting data...');
 
     // Extract data
     const pageData = await page.evaluate(() => {
@@ -79,27 +88,25 @@ export async function fetchPage(url: string): Promise<PageData> {
       };
     });
 
+    console.log('[PageFetcher] Data extracted, closing browser...');
     await browser.close();
 
+    console.log('[PageFetcher] Success! Returning page data');
     return {
       ...pageData,
       loaded: true
     };
 
   } catch (error) {
+    console.error('[PageFetcher] ERROR:', error);
     if (browser) {
       await browser.close().catch(() => {
         // Ignore close errors if already disconnected
       });
     }
 
-    return {
-      html: '',
-      title: '',
-      metaTags: {},
-      scripts: [],
-      loaded: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    };
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[PageFetcher] Throwing error:', errorMessage);
+    throw new Error(`Failed to fetch page: ${errorMessage}`);
   }
 }

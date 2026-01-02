@@ -17,6 +17,9 @@ export async function GET() {
       database: { status: string; message?: string };
       redis: { status: string; configured: boolean; connected?: boolean };
       queue: { status: string; stats?: object; workerRunning?: boolean };
+      openai: { configured: boolean };
+      pagespeed: { configured: boolean };
+      browserless: { configured: boolean };
     };
   } = {
     status: 'healthy',
@@ -26,6 +29,9 @@ export async function GET() {
       database: { status: 'unknown' },
       redis: { status: 'unknown', configured: false },
       queue: { status: 'unknown' },
+      openai: { configured: !!process.env.OPENAI_API_KEY },
+      pagespeed: { configured: !!process.env.GOOGLE_PAGESPEED_API_KEY },
+      browserless: { configured: !!process.env.BROWSERLESS_API_KEY },
     },
   };
 

@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useUser, UserButton } from '@clerk/nextjs';
 import type { ScanResult } from '@/lib/scanner';
 import {
   Globe,
@@ -15,6 +17,7 @@ import {
   Star,
   Check,
   Rocket,
+  LayoutDashboard,
 } from 'lucide-react';
 
 const whatWeCheck = [
@@ -113,6 +116,8 @@ export default function Home() {
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState('');
+  const router = useRouter();
+  const { isSignedIn, user, isLoaded } = useUser();
 
   const handleScan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -135,10 +140,12 @@ export default function Home() {
       }
 
       const data = await response.json();
-      setResult(data);
+      // Store results and redirect to results page
+      sessionStorage.setItem('scanResult', JSON.stringify(data));
+      sessionStorage.setItem('scannedUrl', url);
+      router.push('/results');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to scan');
-    } finally {
       setScanning(false);
     }
   };
@@ -160,17 +167,36 @@ export default function Home() {
       {/* Header */}
       <header className="border-b border-slate-700/50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <a href={isSignedIn ? "/dashboard" : "/"} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
             <Rocket className="w-6 h-6 text-indigo-500" />
             <span className="text-xl font-bold text-white">LaunchReady.me</span>
-          </div>
+          </a>
           <nav className="flex items-center gap-4">
-            <a href="/sign-in" className="text-slate-400 hover:text-white transition-colors px-4 py-2">
-              Login
-            </a>
-            <a href="/sign-up" className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors">
-              Sign Up
-            </a>
+            {isLoaded && isSignedIn ? (
+              <>
+                <a href="/dashboard" className="text-slate-400 hover:text-white transition-colors px-4 py-2 flex items-center gap-2">
+                  <LayoutDashboard className="w-4 h-4" />
+                  Dashboard
+                </a>
+                <UserButton 
+                  afterSignOutUrl="/"
+                  appearance={{
+                    elements: {
+                      avatarBox: "w-9 h-9",
+                    }
+                  }}
+                />
+              </>
+            ) : (
+              <>
+                <a href="/sign-in" className="text-slate-400 hover:text-white transition-colors px-4 py-2">
+                  Login
+                </a>
+                <a href="/sign-up" className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors">
+                  Sign Up
+                </a>
+              </>
+            )}
           </nav>
         </div>
       </header>

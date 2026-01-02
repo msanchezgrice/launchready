@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth, currentUser } from '@clerk/nextjs/server';
-import { createCheckoutSession, PRICING_TIERS, PlanType } from '@/lib/stripe';
+import { createCheckoutSession, PRICING_TIERS, PlanType, getPriceId } from '@/lib/stripe';
 import { prisma } from '@/lib/prisma';
 
 export async function POST(request: NextRequest) {
@@ -20,10 +20,16 @@ export async function POST(request: NextRequest) {
     }
 
     const tier = PRICING_TIERS[plan];
+    const priceId = getPriceId(plan);
     
     // Free tier doesn't need checkout
-    if (plan === 'free' || !tier.priceId) {
-      return NextResponse.json({ error: 'Cannot checkout for free tier' }, { status: 400 });
+    if (plan === 'free' || !priceId) {
+      console.error('Invalid plan or missing priceId:', { plan, priceId, envVars: {
+        pro: process.env.STRIPE_PRO_PRICE_ID,
+        pro_plus: process.env.STRIPE_PRO_PLUS_PRICE_ID,
+        enterprise: process.env.STRIPE_ENTERPRISE_PRICE_ID,
+      }});
+      return NextResponse.json({ error: 'Cannot checkout for free tier or missing price configuration' }, { status: 400 });
     }
 
     // Get current user details
@@ -56,7 +62,7 @@ export async function POST(request: NextRequest) {
     const session = await createCheckoutSession({
       userId: dbUser.id,
       userEmail: clerkUser.primaryEmailAddress.emailAddress,
-      priceId: tier.priceId,
+      priceId: priceId,
       successUrl,
       cancelUrl,
       customerId: dbUser.stripeCustomerId || undefined,

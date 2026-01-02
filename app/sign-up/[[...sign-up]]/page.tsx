@@ -10,10 +10,8 @@ export default function SignUpPage() {
             card: 'shadow-2xl',
           },
         }}
-        routing="path"
-        path="/sign-up"
+        fallbackRedirectUrl="/dashboard"
         signInUrl="/sign-in"
-        afterSignUpUrl="/dashboard"
       />
     </div>
   )

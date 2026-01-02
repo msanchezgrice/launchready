@@ -21,12 +21,11 @@ export const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-10-16', typescript: true })
   : (null as unknown as Stripe);
 
-// Pricing tiers configuration
-export const PRICING_TIERS = {
+// Pricing tiers configuration (static data)
+const PRICING_TIERS_BASE = {
   free: {
     name: 'Free',
     price: 0,
-    priceId: null,
     features: {
       projects: 1,
       scansPerDay: 1,
@@ -44,7 +43,6 @@ export const PRICING_TIERS = {
   pro: {
     name: 'Pro',
     price: 19,
-    priceId: process.env.STRIPE_PRO_PRICE_ID || '',
     features: {
       projects: 6,
       scansPerDay: -1, // unlimited
@@ -62,7 +60,6 @@ export const PRICING_TIERS = {
   pro_plus: {
     name: 'Pro Plus',
     price: 39,
-    priceId: process.env.STRIPE_PRO_PLUS_PRICE_ID || '',
     features: {
       projects: 15,
       scansPerDay: -1, // unlimited
@@ -80,7 +77,6 @@ export const PRICING_TIERS = {
   enterprise: {
     name: 'Enterprise',
     price: 99,
-    priceId: process.env.STRIPE_ENTERPRISE_PRICE_ID || '',
     features: {
       projects: -1, // unlimited
       scansPerDay: -1, // unlimited
@@ -97,7 +93,31 @@ export const PRICING_TIERS = {
   },
 } as const;
 
-export type PlanType = keyof typeof PRICING_TIERS;
+// Get priceId at runtime to ensure env vars are read correctly
+export function getPriceId(plan: PlanType): string | null {
+  switch (plan) {
+    case 'free':
+      return null;
+    case 'pro':
+      return process.env.STRIPE_PRO_PRICE_ID || null;
+    case 'pro_plus':
+      return process.env.STRIPE_PRO_PLUS_PRICE_ID || null;
+    case 'enterprise':
+      return process.env.STRIPE_ENTERPRISE_PRICE_ID || null;
+    default:
+      return null;
+  }
+}
+
+// Export with priceId getter for compatibility
+export const PRICING_TIERS = {
+  free: { ...PRICING_TIERS_BASE.free, priceId: null as string | null },
+  pro: { ...PRICING_TIERS_BASE.pro, get priceId() { return getPriceId('pro'); } },
+  pro_plus: { ...PRICING_TIERS_BASE.pro_plus, get priceId() { return getPriceId('pro_plus'); } },
+  enterprise: { ...PRICING_TIERS_BASE.enterprise, get priceId() { return getPriceId('enterprise'); } },
+};
+
+export type PlanType = keyof typeof PRICING_TIERS_BASE;
 
 // Helper to get plan limits
 export function getPlanLimits(plan: string) {

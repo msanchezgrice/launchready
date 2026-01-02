@@ -780,20 +780,20 @@ export async function scanProject(url: string): Promise<ScanResult> {
   pageCache.set(url, pageData);
 
   try {
-    // Run phases sequentially to avoid timeout and reduce concurrent load
-    console.log('[Scanner] Running 8 phases sequentially...');
+    // TEMP: Test with just phase 1 to isolate timeout issue
+    console.log('[Scanner] Running Phase 1 only (testing)...');
     const phaseStart = Date.now();
     const phases = [
       await checkDomain(url),
-      await checkSEO(url),
-      await checkPerformance(url),
-      await checkSecurity(url),
-      await checkAnalytics(url),
-      await checkSocial(url),
-      await checkContent(url),
-      await checkMonitoring(url)
+      // await checkSEO(url),
+      // await checkPerformance(url),
+      // await checkSecurity(url),
+      // await checkAnalytics(url),
+      // await checkSocial(url),
+      // await checkContent(url),
+      // await checkMonitoring(url)
     ];
-    console.log(`[Scanner] All phases completed in ${Date.now() - phaseStart}ms`);
+    console.log(`[Scanner] Phase 1 completed in ${Date.now() - phaseStart}ms`);
 
     const totalScore = phases.reduce((sum, phase) => sum + phase.score, 0);
     const maxScore = phases.reduce((sum, phase) => sum + phase.maxScore, 0);

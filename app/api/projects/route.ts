@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { currentUser } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
+import { getPlanLimits, canAddProject, canScan } from '@/lib/stripe'
 
 // GET /api/projects - List user's projects
 export async function GET() {
@@ -39,7 +40,30 @@ export async function GET() {
       orderBy: { createdAt: 'desc' },
     })
 
-    return NextResponse.json({ projects })
+    // Get plan limits
+    const limits = getPlanLimits(dbUser.plan)
+    const projectCount = projects.length
+    const userCanScan = canScan(dbUser.plan, dbUser.lastScan)
+    
+    // Calculate next scan time for rate-limited users
+    let nextScanTime: string | undefined
+    if (!userCanScan && dbUser.lastScan) {
+      const nextScan = new Date(dbUser.lastScan.getTime() + 24 * 60 * 60 * 1000)
+      nextScanTime = nextScan.toISOString()
+    }
+
+    // Build user plan info
+    const userPlan = {
+      plan: dbUser.plan,
+      projectCount,
+      maxProjects: limits.projects,
+      canScan: userCanScan,
+      nextScanTime,
+      stripeCustomerId: dbUser.stripeCustomerId || undefined,
+      subscriptionStatus: dbUser.subscriptionStatus || undefined,
+    }
+
+    return NextResponse.json({ projects, userPlan })
   } catch (error) {
     console.error('Error fetching projects:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -77,21 +101,22 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Check free tier limit (max 1 project)
-    if (dbUser.plan === 'free') {
-      const projectCount = await prisma.project.count({
-        where: { userId: dbUser.id },
-      })
+    // Check project limit based on plan
+    const projectCount = await prisma.project.count({
+      where: { userId: dbUser.id },
+    })
 
-      if (projectCount >= 1) {
-        return NextResponse.json(
-          {
-            error: 'Free tier limited to 1 project',
-            upgrade: true,
-          },
-          { status: 403 }
-        )
-      }
+    if (!canAddProject(dbUser.plan, projectCount)) {
+      const limits = getPlanLimits(dbUser.plan)
+      return NextResponse.json(
+        {
+          error: `Project limit reached (${projectCount}/${limits.projects})`,
+          upgrade: true,
+          currentCount: projectCount,
+          maxProjects: limits.projects,
+        },
+        { status: 403 }
+      )
     }
 
     // Create project

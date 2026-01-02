@@ -769,24 +769,24 @@ export async function scanProject(url: string): Promise<ScanResult> {
   const startTime = Date.now();
   console.log(`[Scanner] Starting scan for ${url}`);
 
-  // TEMP: Disabled for Phase 1-only testing (Phase 1 doesn't need Browserless)
+  // TEMP: Re-enabled for Phase 2 testing (SEO needs Browserless)
   // Fetch page data once upfront for better performance
   // This is used by checkSEO, checkPerformance, and checkContent
-  // console.log('[Scanner] Fetching page via Browserless...');
-  // const fetchStart = Date.now();
-  // const pageData = await fetchPage(url);
-  // console.log(`[Scanner] Page fetch completed in ${Date.now() - fetchStart}ms`);
+  console.log('[Scanner] Fetching page via Browserless...');
+  const fetchStart = Date.now();
+  const pageData = await fetchPage(url);
+  console.log(`[Scanner] Page fetch completed in ${Date.now() - fetchStart}ms`);
 
   // Store in module cache for phase functions to access
-  // pageCache.set(url, pageData);
+  pageCache.set(url, pageData);
 
   try {
-    // TEMP: Test with just phase 1 to isolate timeout issue
-    console.log('[Scanner] Running Phase 1 only (testing)...');
+    // TEMP: Test with phases 1-2 to test Browserless integration
+    console.log('[Scanner] Running Phases 1-2 (testing Browserless)...');
     const phaseStart = Date.now();
     const phases = [
       await checkDomain(url),
-      // await checkSEO(url),
+      await checkSEO(url),
       // await checkPerformance(url),
       // await checkSecurity(url),
       // await checkAnalytics(url),
@@ -794,7 +794,7 @@ export async function scanProject(url: string): Promise<ScanResult> {
       // await checkContent(url),
       // await checkMonitoring(url)
     ];
-    console.log(`[Scanner] Phase 1 completed in ${Date.now() - phaseStart}ms`);
+    console.log(`[Scanner] Phases 1-2 completed in ${Date.now() - phaseStart}ms`);
 
     const totalScore = phases.reduce((sum, phase) => sum + phase.score, 0);
     const maxScore = phases.reduce((sum, phase) => sum + phase.maxScore, 0);
@@ -810,8 +810,7 @@ export async function scanProject(url: string): Promise<ScanResult> {
       scannedAt: new Date()
     };
   } finally {
-    // TEMP: Disabled for Phase 1-only testing
     // Clean up cache after scan completes
-    // pageCache.delete(url);
+    pageCache.delete(url);
   }
 }

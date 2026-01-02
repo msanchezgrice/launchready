@@ -64,13 +64,15 @@ export default function Home() {
           <form onSubmit={handleScan} className="mb-12">
             <div className="flex gap-4 max-w-2xl mx-auto">
               <input
-                type="url"
+                type="text"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://yourproject.com"
+                placeholder="yourproject.com"
                 className="flex-1 px-6 py-4 rounded-lg bg-card border border-border text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary"
                 required
                 disabled={scanning}
+                pattern=".*\..+"
+                title="Enter a domain like example.com or https://example.com"
               />
               <button
                 type="submit"

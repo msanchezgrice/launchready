@@ -35,6 +35,52 @@ export interface ScanResult {
   maxScore: number;
   phases: ScanPhaseResult[];
   scannedAt: Date;
+  executiveSummary?: string;
+  topPriorities?: string[];
+}
+
+/**
+ * Helper function for OpenAI API calls
+ */
+async function callOpenAI(prompt: string, systemPrompt: string, maxTokens: number = 500): Promise<string | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  
+  if (!apiKey) {
+    console.log('[OpenAI] No API key configured');
+    return null;
+  }
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.3,
+        max_tokens: maxTokens
+      }),
+      signal: AbortSignal.timeout(15000) // 15s timeout
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[OpenAI] API error:', response.status, errorText);
+      return null;
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content || null;
+  } catch (error) {
+    console.error('[OpenAI] Request failed:', error);
+    return null;
+  }
 }
 
 /**
@@ -1072,92 +1118,101 @@ export async function checkContent(url: string): Promise<ScanPhaseResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   const pageData = pageCache.get(url);
 
-  if (!apiKey || !pageData?.loaded) {
-    // Fallback: Basic content checks without AI
-    console.log('[Scanner:Content] No OpenAI API key or page not loaded, using basic checks');
+  console.log('[Scanner:Content] API key present:', !!apiKey, 'Page loaded:', !!pageData?.loaded);
+
+  // If page didn't load, return error
+  if (!pageData?.loaded) {
+    findings.push({
+      type: 'error',
+      message: 'Failed to load page',
+      details: pageData?.error || 'Could not fetch page for analysis'
+    });
+    return { phaseName: 'Content Quality', score: 0, maxScore, findings, recommendations };
+  }
+
+  // Helper function for basic pattern-based content analysis
+  function runBasicAnalysis(): ScanPhaseResult {
+    console.log('[Scanner:Content] Running basic pattern analysis');
+    // We know pageData exists and is loaded at this point
+    const pd = pageData!;
+    const html = pd.html.toLowerCase();
+    const title = pd.title?.toLowerCase() || '';
     
-    if (pageData?.loaded) {
-      // Check for value proposition indicators
-      const html = pageData.html.toLowerCase();
-      const title = pageData.title?.toLowerCase() || '';
-      const description = pageData.metaTags['description']?.toLowerCase() || '';
-      
-      // Check for clear CTA
-      const ctaPatterns = [
-        /sign\s*up/i, /get\s*started/i, /try\s*(it\s*)?free/i, /start\s*(your\s*)?(free\s*)?trial/i,
-        /book\s*(a\s*)?demo/i, /contact\s*us/i, /learn\s*more/i, /buy\s*now/i, /subscribe/i
-      ];
-      const hasCTA = ctaPatterns.some(pattern => pattern.test(html));
-      if (hasCTA) {
-        score += 25;
-        findings.push({
-          type: 'success',
-          message: 'Call-to-action detected',
-          details: 'Page has clear user action prompts'
-        });
-      } else {
-        recommendations.push({
-          priority: 'high',
-          title: 'Add clear call-to-action',
-          description: 'Every landing page needs a clear next step for visitors',
-          actionable: 'Add prominent "Get Started", "Sign Up", or "Learn More" buttons'
-        });
-      }
-
-      // Check for social proof indicators
-      const socialProofPatterns = [
-        /testimonial/i, /review/i, /customer/i, /trusted\s*by/i, /used\s*by/i,
-        /\d+\s*(k|\+)?\s*(users|customers|companies)/i, /as\s*seen\s*(on|in)/i,
-        /rating/i, /stars?/i
-      ];
-      const hasSocialProof = socialProofPatterns.some(pattern => pattern.test(html));
-      if (hasSocialProof) {
-        score += 20;
-        findings.push({
-          type: 'success',
-          message: 'Social proof detected',
-          details: 'Testimonials, reviews, or trust indicators found'
-        });
-      } else {
-        recommendations.push({
-          priority: 'medium',
-          title: 'Add social proof',
-          description: 'Include testimonials, logos, or metrics to build trust',
-          actionable: 'Feature 3-5 customer quotes, company logos, or usage stats'
-        });
-      }
-
-      // Check title quality
-      if (title.length >= 30 && title.length <= 70) {
-        score += 15;
-        findings.push({
-          type: 'success',
-          message: 'Page title is well-sized',
-          details: `${title.length} characters - good for readability`
-        });
-      }
-
-      // Check for headline (H1)
-      const h1Match = pageData.html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
-      if (h1Match && h1Match[1].length > 10) {
-        score += 15;
-        findings.push({
-          type: 'success',
-          message: 'Main headline (H1) present',
-          details: `"${h1Match[1].substring(0, 50)}${h1Match[1].length > 50 ? '...' : ''}"`
-        });
-      } else {
-        recommendations.push({
-          priority: 'high',
-          title: 'Add compelling headline',
-          description: 'Your H1 should clearly communicate your value proposition',
-          actionable: 'Write a headline that answers "What do you offer and why should I care?"'
-        });
-      }
-
-      // Base score for having content
-      score += 15;
+    // Check for clear CTA
+    const ctaPatterns = [
+      /sign\s*up/i, /get\s*started/i, /try\s*(it\s*)?free/i, /start\s*(your\s*)?(free\s*)?trial/i,
+      /book\s*(a\s*)?demo/i, /contact\s*us/i, /learn\s*more/i, /buy\s*now/i, /subscribe/i
+    ];
+    const hasCTA = ctaPatterns.some(pattern => pattern.test(html));
+    if (hasCTA) {
+      score += 25;
+      findings.push({
+        type: 'success',
+        message: 'Call-to-action detected',
+        details: 'Page has clear user action prompts'
+      });
+    } else {
+      recommendations.push({
+        priority: 'high',
+        title: 'Add clear call-to-action',
+        description: 'Every landing page needs a clear next step for visitors',
+        actionable: 'Add prominent "Get Started", "Sign Up", or "Learn More" buttons'
+      });
     }
+
+    // Check for social proof indicators
+    const socialProofPatterns = [
+      /testimonial/i, /review/i, /customer/i, /trusted\s*by/i, /used\s*by/i,
+      /\d+\s*(k|\+)?\s*(users|customers|companies)/i, /as\s*seen\s*(on|in)/i,
+      /rating/i, /stars?/i
+    ];
+    const hasSocialProof = socialProofPatterns.some(pattern => pattern.test(html));
+    if (hasSocialProof) {
+      score += 20;
+      findings.push({
+        type: 'success',
+        message: 'Social proof detected',
+        details: 'Testimonials, reviews, or trust indicators found'
+      });
+    } else {
+      recommendations.push({
+        priority: 'medium',
+        title: 'Add social proof',
+        description: 'Include testimonials, logos, or metrics to build trust',
+        actionable: 'Feature 3-5 customer quotes, company logos, or usage stats'
+      });
+    }
+
+    // Check title quality
+    if (title.length >= 30 && title.length <= 70) {
+      score += 15;
+      findings.push({
+        type: 'success',
+        message: 'Page title is well-sized',
+        details: `${title.length} characters - good for readability`
+      });
+    }
+
+    // Check for headline (H1)
+    const h1Match = pd.html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+    if (h1Match && h1Match[1].length > 10) {
+      score += 15;
+      findings.push({
+        type: 'success',
+        message: 'Main headline (H1) present',
+        details: `"${h1Match[1].substring(0, 50)}${h1Match[1].length > 50 ? '...' : ''}"`
+      });
+    } else {
+      recommendations.push({
+        priority: 'high',
+        title: 'Add compelling headline',
+        description: 'Your H1 should clearly communicate your value proposition',
+        actionable: 'Write a headline that answers "What do you offer and why should I care?"'
+      });
+    }
+
+    // Base score for having content
+    score += 15;
 
     // Generic recommendations
     recommendations.push({
@@ -1168,6 +1223,12 @@ export async function checkContent(url: string): Promise<ScanPhaseResult> {
     });
 
     return { phaseName: 'Content Quality', score: Math.max(score, 35), maxScore, findings, recommendations };
+  }
+
+  // If no API key, use basic analysis
+  if (!apiKey) {
+    console.log('[Scanner:Content] No OpenAI API key, using basic analysis');
+    return runBasicAnalysis();
   }
 
   // Use OpenAI GPT-4 for intelligent content analysis
@@ -1183,18 +1244,7 @@ export async function checkContent(url: string): Promise<ScanPhaseResult> {
       .trim()
       .substring(0, 4000); // Limit for API
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini', // Cost-effective model
-        messages: [
-          {
-            role: 'system',
-            content: `You are a landing page optimization expert. Analyze the provided page content and return a JSON object with:
+    const systemPrompt = `You are a landing page optimization expert. Analyze the provided page content and return a JSON object with:
 - score: number 0-100 (overall content quality)
 - valueProposition: { clear: boolean, message: string }
 - headline: { effective: boolean, feedback: string }
@@ -1202,25 +1252,18 @@ export async function checkContent(url: string): Promise<ScanPhaseResult> {
 - socialProof: { present: boolean, type: string }
 - readability: { score: "good"|"fair"|"poor", feedback: string }
 - improvements: array of { priority: "high"|"medium"|"low", issue: string, fix: string }
-Be concise. Return only valid JSON.`
-          },
-          {
-            role: 'user',
-            content: `Analyze this landing page content:\n\nTitle: ${pageData.title}\nDescription: ${pageData.metaTags['description'] || 'None'}\n\nContent:\n${textContent}`
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 800
-      }),
-      signal: AbortSignal.timeout(20000) // 20s timeout
-    });
+Be concise. Return only valid JSON.`;
 
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`);
+    const userPrompt = `Analyze this landing page content:\n\nTitle: ${pageData.title}\nDescription: ${pageData.metaTags['description'] || 'None'}\n\nContent:\n${textContent}`;
+
+    const aiResponse = await callOpenAI(userPrompt, systemPrompt, 800);
+
+    if (!aiResponse) {
+      console.log('[Scanner:Content] OpenAI call failed, falling back to basic analysis');
+      return runBasicAnalysis();
     }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
+    const content = aiResponse;
     
     if (content) {
       // Parse JSON response
@@ -1332,26 +1375,8 @@ Be concise. Return only valid JSON.`
 
   } catch (error) {
     console.error('[Scanner:Content] OpenAI API failed:', error);
-    score = 45;
-    findings.push({
-      type: 'warning',
-      message: 'AI content analysis unavailable',
-      details: error instanceof Error ? error.message : 'Could not analyze content'
-    });
-
-    recommendations.push({
-      priority: 'high',
-      title: 'Write compelling copy',
-      description: 'Clear value proposition above the fold',
-      actionable: 'Answer: What problem do you solve? Why should I care?'
-    });
-
-    recommendations.push({
-      priority: 'medium',
-      title: 'Add social proof',
-      description: 'Include testimonials, logos, or metrics',
-      actionable: 'Feature 3-5 customer quotes or trust badges'
-    });
+    // Fall back to basic analysis on error
+    return runBasicAnalysis();
   }
 
   return {
@@ -1647,6 +1672,70 @@ export async function scanProject(url: string): Promise<ScanResult> {
     const maxScore = phases.reduce((sum, phase) => sum + phase.maxScore, 0);
     const score = Math.round((totalScore / maxScore) * 100);
 
+    // Generate executive summary and top priorities using LLM
+    let executiveSummary: string | undefined;
+    let topPriorities: string[] | undefined;
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (apiKey) {
+      console.log('[Scanner] Generating executive summary with GPT-4...');
+      
+      // Collect all high-priority recommendations
+      const allRecommendations = phases.flatMap(p => 
+        p.recommendations.map(r => ({
+          phase: p.phaseName,
+          priority: r.priority,
+          title: r.title,
+          actionable: r.actionable
+        }))
+      );
+      
+      const highPriority = allRecommendations.filter(r => r.priority === 'high');
+      const mediumPriority = allRecommendations.filter(r => r.priority === 'medium');
+      
+      // Build phase summary
+      const phaseSummary = phases.map(p => 
+        `${p.phaseName}: ${p.score}/${p.maxScore} (${Math.round(p.score/p.maxScore*100)}%)`
+      ).join('\n');
+
+      const summaryPrompt = `Based on this website scan:
+
+URL: ${url}
+Overall Score: ${score}/100
+
+Phase Scores:
+${phaseSummary}
+
+Top Issues (High Priority):
+${highPriority.slice(0, 5).map(r => `- ${r.phase}: ${r.title}`).join('\n') || 'None'}
+
+Medium Priority Issues:
+${mediumPriority.slice(0, 3).map(r => `- ${r.phase}: ${r.title}`).join('\n') || 'None'}
+
+Generate:
+1. A 2-3 sentence executive summary of the site's launch readiness
+2. Top 3 specific actions to improve the score (be actionable and specific)
+
+Format as JSON: { "summary": "...", "priorities": ["action 1", "action 2", "action 3"] }`;
+
+      const summarySystemPrompt = 'You are a launch readiness consultant. Be concise and actionable. Return only valid JSON.';
+      
+      try {
+        const summaryResponse = await callOpenAI(summaryPrompt, summarySystemPrompt, 400);
+        if (summaryResponse) {
+          const jsonMatch = summaryResponse.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            executiveSummary = parsed.summary;
+            topPriorities = parsed.priorities;
+            console.log('[Scanner] Executive summary generated successfully');
+          }
+        }
+      } catch (error) {
+        console.error('[Scanner] Failed to generate executive summary:', error);
+      }
+    }
+
     console.log(`[Scanner] Scan completed in ${Date.now() - startTime}ms - Score: ${score}/100`);
 
     return {
@@ -1654,7 +1743,9 @@ export async function scanProject(url: string): Promise<ScanResult> {
       score,
       maxScore: 100,
       phases,
-      scannedAt: new Date()
+      scannedAt: new Date(),
+      executiveSummary,
+      topPriorities
     };
   } finally {
     // Clean up cache after scan completes

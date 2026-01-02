@@ -10,7 +10,12 @@
     "postinstall": "prisma generate || true",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "db:generate": "prisma generate"
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "test": "jest",
+    "test:stripe": "jest __tests__/api/checkout.test.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:upgrade": "playwright test e2e/upgrade.spec.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^5.0.0",

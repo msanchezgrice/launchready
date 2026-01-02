@@ -201,7 +201,6 @@ export async function getQueueStats(): Promise<{
   completed: number;
   failed: number;
   delayed: number;
-  paused: number;
 }> {
   const queue = getScanQueue();
   const counts = await queue.getJobCounts();
@@ -212,7 +211,6 @@ export async function getQueueStats(): Promise<{
     completed: counts.completed || 0,
     failed: counts.failed || 0,
     delayed: counts.delayed || 0,
-    paused: counts.paused || 0,
   };
 }
 
@@ -355,4 +353,54 @@ export async function closeQueue(): Promise<void> {
     scanQueueInstance = null;
     console.log('[ScanQueue] Queue closed');
   }
+}
+
+/**
+ * Cancel a waiting or delayed job
+ */
+export async function cancelJob(jobId: string): Promise<boolean> {
+  const queue = getScanQueue();
+  const job = await queue.getJob(jobId);
+
+  if (!job) {
+    console.log(`[ScanQueue] Job ${jobId} not found`);
+    return false;
+  }
+
+  const state = await job.getState();
+
+  // Can only cancel waiting or delayed jobs
+  if (state !== 'waiting' && state !== 'delayed') {
+    console.log(`[ScanQueue] Cannot cancel job ${jobId} in state ${state}`);
+    return false;
+  }
+
+  await job.remove();
+  console.log(`[ScanQueue] Cancelled job ${jobId}`);
+  return true;
+}
+
+/**
+ * Retry a failed job
+ */
+export async function retryJob(jobId: string): Promise<boolean> {
+  const queue = getScanQueue();
+  const job = await queue.getJob(jobId);
+
+  if (!job) {
+    console.log(`[ScanQueue] Job ${jobId} not found`);
+    return false;
+  }
+
+  const state = await job.getState();
+
+  // Can only retry failed jobs
+  if (state !== 'failed') {
+    console.log(`[ScanQueue] Cannot retry job ${jobId} in state ${state}`);
+    return false;
+  }
+
+  await job.retry();
+  console.log(`[ScanQueue] Retrying job ${jobId}`);
+  return true;
 }

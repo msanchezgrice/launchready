@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
             // Watch specific job
             const status = await getJobStatus(jobId);
             
-            if (!status.exists) {
+            if (!status) {
               sendEvent(controller, 'job-not-found', { jobId });
               clearInterval(pollInterval);
               controller.close();
@@ -89,7 +89,10 @@ export async function GET(request: NextRequest) {
 
             sendEvent(controller, 'job-update', {
               jobId,
-              ...status,
+              state: status.state,
+              progress: status.progress,
+              projectName: status.data.projectName,
+              url: status.data.url,
               timestamp: new Date().toISOString(),
             });
 
@@ -105,16 +108,27 @@ export async function GET(request: NextRequest) {
             }
           } else if (watchAll) {
             // Watch all user's jobs
-            const jobs = await getUserJobs(user.id, ['waiting', 'active']);
+            const userJobs = await getUserJobs(user.id);
+            const activeJobs = [...userJobs.waiting, ...userJobs.active];
             
             sendEvent(controller, 'jobs-update', {
-              jobs,
-              count: jobs.length,
+              waiting: userJobs.waiting.map(j => ({
+                id: j.id,
+                projectName: j.data.projectName,
+                url: j.data.url,
+              })),
+              active: userJobs.active.map(j => ({
+                id: j.id,
+                projectName: j.data.projectName,
+                url: j.data.url,
+                progress: j.progress(),
+              })),
+              count: activeJobs.length,
               timestamp: new Date().toISOString(),
             });
 
             // If no active jobs, send idle event
-            if (jobs.length === 0) {
+            if (activeJobs.length === 0) {
               sendEvent(controller, 'idle', {
                 message: 'No active jobs',
                 timestamp: new Date().toISOString(),

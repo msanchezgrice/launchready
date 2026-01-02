@@ -30,17 +30,14 @@ export async function GET(
     const { jobId } = await params;
     const status = await getJobStatus(jobId);
 
-    if (!status.exists) {
+    if (!status) {
       return NextResponse.json(
         { error: 'Job not found' },
         { status: 404 }
       );
     }
 
-    return NextResponse.json({
-      id: jobId,
-      ...status,
-    });
+    return NextResponse.json(status);
   } catch (error) {
     console.error('[API] Get job error:', error);
     return NextResponse.json(

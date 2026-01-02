@@ -1,195 +1,191 @@
-# LaunchReady Handoff: Phase 5 - Queue System Complete
+# LaunchReady Phase 5: Queue System Implementation
 
 **Date:** 2026-01-02
-**Status:** Phase 5 Implementation Complete (requires Redis/Upstash configuration)
+**Status:** Complete (awaiting UPSTASH_REDIS_URL configuration)
+**Author:** Cursor Agent
 
 ## Summary
 
-Phase 5 (Queue System) is now fully implemented with Bull/Redis-based background job processing for scans. This enables:
-- Async scanning with progress tracking
-- Batch scanning multiple projects simultaneously
-- Automatic retry of failed scans
-- Real-time updates via SSE (Server-Sent Events)
+Phase 5 (Queue System) implementation is complete. This adds background job processing for scans using Bull (Redis-based queue), enabling:
 
-## What's Implemented
+- Asynchronous scanning with progress tracking
+- Batch scanning for Pro+ users
+- Real-time updates via Server-Sent Events (SSE)
+- Job retry/cancellation capabilities
 
-### ✅ Core Queue Infrastructure
+## What Was Implemented
 
-1. **Redis Client** (`lib/redis.ts`)
-   - Upstash Redis connection configuration
-   - Health check (ping) function
-   - Bull queue connection options
+### Core Queue Infrastructure
 
-2. **Scan Queue** (`lib/scan-queue.ts`)
-   - Bull-based job queue for scan processing
-   - Job types: manual, auto-scan, api, batch
-   - Default 3 retry attempts with exponential backoff
-   - Job timeout: 2 minutes
-   - Auto-cleanup of old jobs (24 hours)
-   - Concurrency control (default: 2 concurrent scans)
+1. **`lib/redis.ts`** - Redis client configuration for Upstash
+   - Singleton pattern for connection management
+   - TLS support for Upstash
+   - Health check function
+   - Bull-compatible options export
 
-3. **Worker** (`lib/worker.ts`)
-   - Standalone worker process support
+2. **`lib/scan-queue.ts`** - Bull-based job queue
+   - Job data structure with projectId, url, userId, trigger
+   - Queue initialization with retry and backoff settings
+   - Worker process for job execution
+   - Functions: `addScanJob`, `addBatchScanJobs`, `getJobStatus`, `getUserJobs`, `getQueueStats`, `cancelJob`, `retryJob`
+
+3. **`lib/worker.ts`** - Queue worker process
+   - Can run standalone (`npm run worker`) or embedded
    - Graceful shutdown handling
-   - Auto-initialization for Next.js context
+   - Build-time detection to prevent startup during Next.js build
 
-### ✅ API Endpoints
+### API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/queue/status` | GET | Queue stats + user's jobs |
-| `/api/queue/status?jobId=xxx` | GET | Specific job status |
-| `/api/queue/scan-all` | POST | Batch scan all user projects (Pro+) |
-| `/api/queue/events` | GET | SSE stream for real-time updates |
+| `/api/queue/status` | GET | Get queue statistics and user's jobs |
+| `/api/queue/status?jobId=xxx` | GET | Get specific job status |
 | `/api/queue/job/[jobId]` | GET | Get job details |
-| `/api/queue/job/[jobId]` | DELETE | Cancel waiting/delayed job |
-| `/api/queue/job/[jobId]` | POST | Retry failed job (`{ "action": "retry" }`) |
-| `/api/health` | GET | Service health check (DB, Redis, Queue) |
+| `/api/queue/job/[jobId]` | DELETE | Cancel a waiting/delayed job |
+| `/api/queue/job/[jobId]` | POST | Retry a failed job (`{ action: "retry" }`) |
+| `/api/queue/scan-all` | POST | Queue scans for all user's projects (Pro+ only) |
+| `/api/queue/events` | GET | SSE stream for real-time job updates |
+| `/api/projects/[id]/scan?async=true` | POST | Queue async scan (optional) |
 
-### ✅ Updated Project Scan Endpoint
+### Server-Sent Events (SSE) Support
 
-`POST /api/projects/[id]/scan?async=true`
-- Sync scan (default): Immediate blocking scan
-- Async scan (`async=true`): Queue job and return immediately
+The `/api/queue/events` endpoint streams real-time updates:
+
+```javascript
+// Client usage
+const eventSource = new EventSource('/api/queue/events?jobId=xxx');
+eventSource.addEventListener('job-update', (e) => {
+  const { state, progress, projectName } = JSON.parse(e.data);
+  console.log(`${projectName}: ${progress}% (${state})`);
+});
+eventSource.addEventListener('job-finished', (e) => {
+  const { state, result } = JSON.parse(e.data);
+  console.log('Done!', result);
+  eventSource.close();
+});
+```
+
+Events emitted:
+- `connected` - Initial connection
+- `job-update` - Job progress update (every 2s)
+- `job-finished` - Job completed or failed
+- `jobs-update` - All user's jobs (when watching all)
+- `idle` - No active jobs
+- `heartbeat` - Keep-alive ping
+- `timeout` - 5 minute connection timeout
+- `error` - Error occurred
 
 ## Configuration Required
 
-Add to `.env.local` or Vercel Environment Variables:
+### Environment Variables
 
 ```bash
-# Upstash Redis (get from https://console.upstash.com)
+# Add to Vercel environment variables:
 UPSTASH_REDIS_URL=rediss://default:xxx@xxx.upstash.io:6379
 
-# Optional: Worker concurrency (default: 2)
-WORKER_CONCURRENCY=2
+# Optional:
+WORKER_CONCURRENCY=2  # Default: 2 concurrent scans
 ```
 
-## NPM Scripts Added
+### Getting Upstash Redis URL
+
+1. Go to https://console.upstash.com
+2. Create a new Redis database (free tier available)
+3. Copy the "REST URL" (starts with `rediss://`)
+4. Add to Vercel environment variables
+
+## Testing
+
+### Local Testing (requires Redis URL)
 
 ```bash
-# Run worker as standalone process
-npm run worker
+# Set environment variable
+export UPSTASH_REDIS_URL=rediss://...
 
-# Check queue status (dev tool)
-npm run queue:stats
+# Start dev server
+npm run dev
+
+# Test queue status (returns configured: false without Redis)
+curl http://localhost:3000/api/queue/status
+
+# Queue a scan (requires auth)
+curl -X POST http://localhost:3000/api/projects/PROJECT_ID/scan?async=true
 ```
 
-## How It Works
+### Production Testing
 
-### Async Scan Flow
-
-```
-1. User calls POST /api/projects/[id]/scan?async=true
-2. Job added to Bull queue with project details
-3. Returns immediately: { queued: true, jobId: "scan-xxx-123" }
-4. Worker picks up job, runs scanProject()
-5. Results saved to database
-6. User polls /api/queue/status?jobId=xxx or subscribes to SSE
-```
-
-### Real-Time Updates (SSE)
-
-```javascript
-// Client-side example
-const events = new EventSource('/api/queue/events');
-
-events.addEventListener('job:active', (e) => {
-  const data = JSON.parse(e.data);
-  console.log(`Scan started: ${data.projectName}`);
-});
-
-events.addEventListener('job:progress', (e) => {
-  const data = JSON.parse(e.data);
-  console.log(`Progress: ${data.progress}%`);
-});
-
-events.addEventListener('job:completed', (e) => {
-  const data = JSON.parse(e.data);
-  console.log(`Score: ${data.result.scanResult.score}`);
-});
-
-events.addEventListener('job:failed', (e) => {
-  const data = JSON.parse(e.data);
-  console.error(`Failed: ${data.error}`);
-});
-```
-
-### Batch Scanning (Pro Feature)
+Once `UPSTASH_REDIS_URL` is configured in Vercel:
 
 ```bash
-# Scan all projects
-curl -X POST https://launchready.me/api/queue/scan-all \
-  -H "Authorization: Bearer $TOKEN"
+# Check queue status
+curl https://launchready.me/api/queue/status
 
-# Scan specific projects
+# Queue batch scans (Pro+ users only)
 curl -X POST https://launchready.me/api/queue/scan-all \
-  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"projectIds": ["proj_1", "proj_2"]}'
+  -d '{}' # or {"projectIds": ["id1", "id2"]}
 ```
 
-## Files Created/Modified
+## Files Changed
 
 ### New Files
 - `lib/redis.ts` - Redis client configuration
 - `lib/scan-queue.ts` - Bull queue implementation
-- `lib/worker.ts` - Worker process script
-- `app/api/queue/status/route.ts` - Queue status endpoint
-- `app/api/queue/scan-all/route.ts` - Batch scan endpoint
-- `app/api/queue/events/route.ts` - SSE real-time endpoint
-- `app/api/queue/job/[jobId]/route.ts` - Job operations endpoint
-- `app/api/health/route.ts` - Health check endpoint
+- `lib/worker.ts` - Queue worker process
+- `app/api/queue/status/route.ts` - Queue status API
+- `app/api/queue/job/[jobId]/route.ts` - Job operations API
+- `app/api/queue/scan-all/route.ts` - Batch scan API
+- `app/api/queue/events/route.ts` - SSE endpoint
 
 ### Modified Files
-- `app/api/projects/[id]/scan/route.ts` - Added async queue support
-- `package.json` - Added worker scripts and tsx devDep
+- `app/api/projects/[id]/scan/route.ts` - Added `?async=true` option
+- `lib/worker.ts` - Fixed build-time execution detection
 
-## Testing
+## Architecture Notes
 
-### Without Redis (Graceful Degradation)
-Queue endpoints return 503 with clear message. Sync scanning still works.
+```
+User Request → API Route → Queue (Redis) → Worker Process → Database
 
-### With Redis
-```bash
-# 1. Set up Upstash Redis (free tier available)
-# 2. Add UPSTASH_REDIS_URL to .env.local
-# 3. Start dev server: npm run dev
-# 4. In another terminal: npm run worker
-# 5. Test endpoints
-
-# Check health
-curl http://localhost:3000/api/health | jq
-
-# Queue a scan (async)
-curl -X POST "http://localhost:3000/api/projects/xxx/scan?async=true" \
-  -H "Content-Type: application/json"
-
-# Check job status
-curl "http://localhost:3000/api/queue/status?jobId=scan-xxx-123" | jq
+For sync scans:   Request → scanProject() → Response
+For async scans:  Request → addScanJob() → 202 Accepted
+                           ↓
+                        Worker polls queue
+                           ↓
+                        scanProject()
+                           ↓
+                        Save to DB
+                           ↓
+                        SSE notifies client
 ```
 
-## Production Deployment
+## Known Limitations
 
-For Vercel deployment, the worker needs to run separately:
-1. Use Vercel Cron Jobs for scheduled scans
-2. Or deploy worker to Railway/Render/Fly.io
-3. Or use Upstash QStash for serverless queue processing
+1. **Worker must be running** - In production, consider:
+   - Vercel Functions (limited by execution time)
+   - Separate worker process on Railway/Render
+   - Vercel Cron for periodic job processing
 
-## Dependencies
-- `bull` - Queue library (already in package.json)
-- `ioredis` - Redis client (already in package.json)
-- `tsx` - Added for running worker script
+2. **SSE 5-minute timeout** - Client needs to reconnect for long-running operations
+
+3. **Free tier restrictions** - Batch scanning limited to Pro+ plans
 
 ## Next Steps
 
-1. **Configure Upstash Redis** - User needs to create account and get URL
-2. **Test batch scanning** - Requires Pro plan for multiple projects
-3. **Add UI components** - Dashboard buttons for "Scan All", progress indicators
-4. **Set up Vercel Cron** - For scheduled auto-scans (Phase 6)
+1. **Configure `UPSTASH_REDIS_URL`** in Vercel environment
+2. **Deploy and verify** queue endpoints work
+3. **Add UI components** for:
+   - "Scan All Projects" button on dashboard
+   - Progress indicators for queued scans
+   - SSE-powered real-time updates
+4. **Consider worker deployment** for production reliability
 
-## Notes
+## Git Commits
 
-- Queue gracefully degrades if Redis is not configured
-- All queue features are Pro+ only (free tier uses sync scanning)
-- Worker can run in same process (dev) or separate (prod)
-- Job IDs format: `scan-{projectId}-{timestamp}`
+```
+feat: Add Phase 5 Queue System with Bull/Redis
+- Redis client configuration for Upstash
+- Bull-based scan queue with retry logic
+- API endpoints for queue status, jobs, and batch scanning
+- Server-Sent Events for real-time updates
+- Worker process with graceful shutdown
+```

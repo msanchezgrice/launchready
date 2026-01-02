@@ -172,14 +172,44 @@ For async scans:  Request → addScanJob() → 202 Accepted
 
 ## Next Steps
 
-1. ✅ **Configure `UPSTASH_REDIS_URL`** - Done locally
-2. **Add to Vercel environment** - Add the same URL to Vercel env vars
-3. **Deploy and verify** queue endpoints work
-4. **Add UI components** for:
+1. ✅ **Configure `UPSTASH_REDIS_URL`** - Done (production verified)
+2. ✅ **Queue system working** - All endpoints verified on production
+3. **Add UI components** for:
    - "Scan All Projects" button on dashboard
    - Progress indicators for queued scans
    - SSE-powered real-time updates
-5. **Consider worker deployment** for production reliability
+4. **Consider worker deployment** for production reliability
+
+---
+
+## Scanner Enhancements (Also Completed)
+
+All 8 scanner phases now work without "Upgrade to Pro" placeholders:
+
+### Verified Working on Production:
+
+| Phase | Basic Mode | Enhanced Mode |
+|-------|------------|---------------|
+| 1. Domain & DNS | ✅ Working | - |
+| 2. SEO Fundamentals | ✅ Working | - |
+| 3. Performance | ✅ HTML/script analysis | + PageSpeed API |
+| 4. Security | ✅ HTTP header checks | - |
+| 5. Analytics | ✅ Script detection | - |
+| 6. Social Media | ✅ OG/Twitter tags | - |
+| 7. Content Quality | ✅ Pattern matching | + GPT-4 analysis |
+| 8. Monitoring | ✅ Tool detection | - |
+
+### Optional API Keys for Enhanced Features:
+
+```bash
+# For Core Web Vitals (LCP, CLS, TBT, FCP, Speed Index):
+GOOGLE_PAGESPEED_API_KEY=your-key-here
+
+# For AI-powered content analysis:
+OPENAI_API_KEY=your-key-here
+```
+
+**Note:** All phases work without these keys using fallback analysis. Add them for enhanced reports.
 
 ## Git Commits
 

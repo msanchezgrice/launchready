@@ -17,6 +17,7 @@ import {
   ExternalLink,
   Clock,
   Zap,
+  Eye,
 } from 'lucide-react'
 
 interface Project {
@@ -360,7 +361,12 @@ export default function DashboardClient() {
                 >
                   <div className="flex items-start justify-between mb-4">
                     <div>
-                      <h3 className="text-lg font-semibold mb-1">{project.name}</h3>
+                      <Link
+                        href={`/projects/${project.id}`}
+                        className="text-lg font-semibold mb-1 hover:text-indigo-400 transition-colors block"
+                      >
+                        {project.name}
+                      </Link>
                       <a
                         href={project.url}
                         target="_blank"
@@ -406,21 +412,23 @@ export default function DashboardClient() {
                   )}
 
                   <div className="flex gap-2">
+                    <Link
+                      href={`/projects/${project.id}`}
+                      className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                      View Details
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
                     <button
                       onClick={() => handleScanProject(project.id)}
                       disabled={scanning === project.id || (userPlan?.plan === 'free' && !userPlan?.canScan)}
-                      className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                      className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-sm font-medium transition-colors flex items-center justify-center"
+                      title="Rescan project"
                     >
                       {scanning === project.id ? (
-                        <>
-                          <RefreshCw className="h-4 w-4 animate-spin" />
-                          Scanning...
-                        </>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
                       ) : (
-                        <>
-                          <RefreshCw className="h-4 w-4" />
-                          Scan
-                        </>
+                        <RefreshCw className="h-4 w-4" />
                       )}
                     </button>
                     <button

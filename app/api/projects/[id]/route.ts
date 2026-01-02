@@ -4,6 +4,51 @@ import { prisma } from '@/lib/prisma'
 
 type Params = Promise<{ id: string }>
 
+// GET /api/projects/[id] - Get project with all scans
+export async function GET(request: NextRequest, { params }: { params: Params }) {
+  try {
+    const user = await currentUser()
+    const { id } = await params
+
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const dbUser = await prisma.user.findUnique({
+      where: { clerkId: user.id },
+    })
+
+    if (!dbUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    // Get project with all scans and phases
+    const project = await prisma.project.findFirst({
+      where: {
+        id,
+        userId: dbUser.id,
+      },
+      include: {
+        scans: {
+          orderBy: { scannedAt: 'desc' },
+          include: {
+            phases: true,
+          },
+        },
+      },
+    })
+
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+    }
+
+    return NextResponse.json({ project })
+  } catch (error) {
+    console.error('Error fetching project:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
 // PATCH /api/projects/[id] - Update project
 export async function PATCH(request: NextRequest, { params }: { params: Params }) {
   try {

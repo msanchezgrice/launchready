@@ -766,15 +766,23 @@ export async function checkMonitoring(url: string): Promise<ScanPhaseResult> {
  * Optimized to fetch page data once and reuse it
  */
 export async function scanProject(url: string): Promise<ScanResult> {
+  const startTime = Date.now();
+  console.log(`[Scanner] Starting scan for ${url}`);
+
   // Fetch page data once upfront for better performance
   // This is used by checkSEO, checkPerformance, and checkContent
+  console.log('[Scanner] Fetching page via Browserless...');
+  const fetchStart = Date.now();
   const pageData = await fetchPage(url);
+  console.log(`[Scanner] Page fetch completed in ${Date.now() - fetchStart}ms`);
 
   // Store in module cache for phase functions to access
   pageCache.set(url, pageData);
 
   try {
     // Run phases sequentially to avoid timeout and reduce concurrent load
+    console.log('[Scanner] Running 8 phases sequentially...');
+    const phaseStart = Date.now();
     const phases = [
       await checkDomain(url),
       await checkSEO(url),
@@ -785,10 +793,13 @@ export async function scanProject(url: string): Promise<ScanResult> {
       await checkContent(url),
       await checkMonitoring(url)
     ];
+    console.log(`[Scanner] All phases completed in ${Date.now() - phaseStart}ms`);
 
     const totalScore = phases.reduce((sum, phase) => sum + phase.score, 0);
     const maxScore = phases.reduce((sum, phase) => sum + phase.maxScore, 0);
     const score = Math.round((totalScore / maxScore) * 100);
+
+    console.log(`[Scanner] Scan completed in ${Date.now() - startTime}ms - Score: ${score}/100`);
 
     return {
       url,

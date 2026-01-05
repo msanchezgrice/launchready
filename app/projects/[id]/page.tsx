@@ -647,7 +647,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                       href="/settings"
                       className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
                     >
-                      <Settings className="h-4 w-4" />
+                      <SettingsIcon className="h-4 w-4" />
                       Connect in Settings
                     </Link>
                   </div>
@@ -1044,7 +1044,7 @@ function RecommendationsTab({
   parseJSON 
 }: { 
   phases: Phase[]
-  parseJSON: <T>(value: T | string | null, defaultValue: T) => T 
+  parseJSON: (data: unknown, fallback?: unknown[]) => unknown[]
 }) {
   const [sortBy, setSortBy] = useState<'priority' | 'phase'>('priority')
   const [filterPhase, setFilterPhase] = useState<string>('all')

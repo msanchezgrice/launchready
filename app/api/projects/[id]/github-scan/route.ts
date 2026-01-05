@@ -1,6 +1,7 @@
 /**
  * GitHub Scan API
  * Triggers a GitHub repository scan for a project
+ * Uses user-level GitHub token (not project-level)
  */
 
 import { NextResponse } from 'next/server'
@@ -20,11 +21,19 @@ export async function POST(
 
   const { id } = await params
 
-  // Get project and verify ownership
+  // Get project with user (to access user-level GitHub token)
   const project = await prisma.project.findFirst({
     where: {
       id,
       user: { clerkId: userId },
+    },
+    include: {
+      user: {
+        select: {
+          githubAccessToken: true,
+          githubUsername: true,
+        },
+      },
     },
   })
 
@@ -32,22 +41,23 @@ export async function POST(
     return NextResponse.json({ error: 'Project not found' }, { status: 404 })
   }
 
-  if (!project.githubAccessToken) {
+  // Check for user-level GitHub connection
+  if (!project.user.githubAccessToken) {
     return NextResponse.json({ 
       error: 'GitHub not connected',
-      message: 'Connect your GitHub repository first'
+      message: 'Connect your GitHub account in Settings first'
     }, { status: 400 })
   }
 
   if (!project.githubRepo) {
     return NextResponse.json({ 
       error: 'No GitHub repo configured',
-      message: 'Add a GitHub repository URL to your project'
+      message: 'Add a GitHub repository to your project settings'
     }, { status: 400 })
   }
 
   try {
-    const result = await scanGitHubRepo(project.githubAccessToken, project.githubRepo)
+    const result = await scanGitHubRepo(project.user.githubAccessToken, project.githubRepo)
     return NextResponse.json({ result })
   } catch (error) {
     console.error('[GitHub Scan] Error:', error)

@@ -1,6 +1,6 @@
 /**
  * Vercel OAuth Callback
- * Exchanges code for access token and stores it
+ * Exchanges code for access token and stores it at user level
  */
 
 import { NextResponse } from 'next/server'
@@ -14,19 +14,19 @@ export async function GET(request: Request) {
 
   if (error) {
     console.error('[Vercel OAuth] Error:', error)
-    return NextResponse.redirect(new URL('/dashboard?error=vercel_auth_failed', request.url))
+    return NextResponse.redirect(new URL('/settings?error=vercel_auth_failed', request.url))
   }
 
   if (!code || !state) {
-    return NextResponse.redirect(new URL('/dashboard?error=missing_params', request.url))
+    return NextResponse.redirect(new URL('/settings?error=missing_params', request.url))
   }
 
-  // Decode state to get projectId and userId
-  let stateData: { projectId: string; userId: string }
+  // Decode state to get userId and returnTo
+  let stateData: { userId: string; returnTo?: string }
   try {
     stateData = JSON.parse(Buffer.from(state, 'base64').toString())
   } catch {
-    return NextResponse.redirect(new URL('/dashboard?error=invalid_state', request.url))
+    return NextResponse.redirect(new URL('/settings?error=invalid_state', request.url))
   }
 
   const clientId = process.env.VERCEL_CLIENT_ID
@@ -34,8 +34,11 @@ export async function GET(request: Request) {
 
   if (!clientId || !clientSecret) {
     console.error('[Vercel OAuth] Missing credentials')
-    return NextResponse.redirect(new URL('/dashboard?error=config_error', request.url))
+    return NextResponse.redirect(new URL('/settings?error=config_error', request.url))
   }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://launchready.me'
+  const redirectUri = `${appUrl}/api/auth/vercel/callback`
 
   try {
     // Exchange code for access token
@@ -48,7 +51,7 @@ export async function GET(request: Request) {
         client_id: clientId,
         client_secret: clientSecret,
         code,
-        redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/vercel/callback`,
+        redirect_uri: redirectUri,
       }),
     })
 
@@ -56,7 +59,7 @@ export async function GET(request: Request) {
 
     if (tokenData.error) {
       console.error('[Vercel OAuth] Token error:', tokenData.error)
-      return NextResponse.redirect(new URL('/dashboard?error=token_exchange_failed', request.url))
+      return NextResponse.redirect(new URL('/settings?error=token_exchange_failed', request.url))
     }
 
     const accessToken = tokenData.access_token
@@ -70,35 +73,34 @@ export async function GET(request: Request) {
     })
     const vercelUser = await userResponse.json()
 
-    // Find the project and verify ownership
-    const project = await prisma.project.findFirst({
-      where: {
-        id: stateData.projectId,
-        user: { clerkId: stateData.userId },
-      },
+    // Find the user by Clerk ID
+    const user = await prisma.user.findUnique({
+      where: { clerkId: stateData.userId },
     })
 
-    if (!project) {
-      return NextResponse.redirect(new URL('/dashboard?error=project_not_found', request.url))
+    if (!user) {
+      return NextResponse.redirect(new URL('/settings?error=user_not_found', request.url))
     }
 
-    // Update project with Vercel token
-    await prisma.project.update({
-      where: { id: project.id },
+    // Update user with Vercel token (user-level, not project-level)
+    await prisma.user.update({
+      where: { id: user.id },
       data: {
         vercelAccessToken: accessToken,
         vercelTeamId: teamId || null,
         vercelUsername: vercelUser.user?.username || vercelUser.user?.name,
+        vercelConnectedAt: new Date(),
       },
     })
 
-    console.log(`[Vercel OAuth] Connected Vercel for project ${project.id}`)
+    console.log(`[Vercel OAuth] Connected Vercel for user ${user.id}`)
 
+    const returnTo = stateData.returnTo || '/settings'
     return NextResponse.redirect(
-      new URL(`/projects/${project.id}?vercel=connected`, request.url)
+      new URL(`${returnTo}?vercel=connected`, request.url)
     )
   } catch (error) {
     console.error('[Vercel OAuth] Error:', error)
-    return NextResponse.redirect(new URL('/dashboard?error=vercel_auth_failed', request.url))
+    return NextResponse.redirect(new URL('/settings?error=vercel_auth_failed', request.url))
   }
 }

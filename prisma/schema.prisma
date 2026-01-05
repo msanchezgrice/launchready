@@ -22,6 +22,19 @@ model User {
   stripePriceId         String?   // Current price ID
   subscriptionStatus    String?   // active, canceled, past_due, etc.
   subscriptionEndDate   DateTime? // When subscription ends (for cancellation)
+  // Notification preferences
+  scoreDropAlerts       Boolean   @default(true) // Get alerts when score drops
+  weeklyDigest          Boolean   @default(true) // Weekly summary email
+  scanCompleteNotify    Boolean   @default(true) // Notify when scan completes
+  // GitHub OAuth integration (user-level for all projects)
+  githubAccessToken     String?   // Access token for GitHub API
+  githubUsername        String?   // GitHub username for display
+  githubConnectedAt     DateTime? // When GitHub was connected
+  // Vercel OAuth integration (user-level for all projects)
+  vercelAccessToken     String?   // Access token for Vercel API
+  vercelTeamId          String?   // Vercel team ID (if applicable)
+  vercelUsername        String?   // Vercel username for display
+  vercelConnectedAt     DateTime? // When Vercel was connected
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   lastScan              DateTime? // Track last scan for rate limiting
@@ -37,20 +50,10 @@ model Project {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name          String
   url           String
-  githubRepo    String?
-  vercelProject String?
+  githubRepo    String?   // GitHub repo URL for this project (e.g., owner/repo)
+  vercelProject String?   // Vercel project name for this project
   autoScanEnabled Boolean @default(false)
   autoScanSchedule String? // cron expression
-  
-  // GitHub OAuth integration
-  githubAccessToken String?   // Encrypted access token
-  githubUsername    String?   // GitHub username for display
-  
-  // Vercel OAuth integration
-  vercelAccessToken String?   // Encrypted access token
-  vercelTeamId      String?   // Vercel team ID (if applicable)
-  vercelUsername    String?   // Vercel username for display
-  
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   scans         Scan[]

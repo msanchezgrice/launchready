@@ -1,6 +1,6 @@
 /**
  * GitHub OAuth - Initiate OAuth flow
- * Redirects user to GitHub to authorize repo access
+ * Redirects user to GitHub to authorize repo access (user-level)
  */
 
 import { NextResponse } from 'next/server'
@@ -14,11 +14,7 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url)
-  const projectId = searchParams.get('projectId')
-
-  if (!projectId) {
-    return NextResponse.json({ error: 'Missing projectId' }, { status: 400 })
-  }
+  const returnTo = searchParams.get('returnTo') || '/settings'
 
   const clientId = process.env.GITHUB_CLIENT_ID
   if (!clientId) {
@@ -26,15 +22,21 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'GitHub OAuth not configured' }, { status: 500 })
   }
 
-  // State includes projectId for callback
-  const state = Buffer.from(JSON.stringify({ projectId, userId })).toString('base64')
+  // State includes userId and return path for callback
+  const state = Buffer.from(JSON.stringify({ userId, returnTo })).toString('base64')
   
-  // Request repo:read scope for code analysis
+  // Request repo scope for code analysis
   const scope = 'repo'
+  
+  // Build the redirect URI - must match GitHub OAuth app settings exactly
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://launchready.me'
+  const redirectUri = `${appUrl}/api/auth/github/callback`
+  
+  console.log('[GitHub OAuth] Initiating flow', { clientId, redirectUri, userId })
   
   const authUrl = new URL('https://github.com/login/oauth/authorize')
   authUrl.searchParams.set('client_id', clientId)
-  authUrl.searchParams.set('redirect_uri', `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/github/callback`)
+  authUrl.searchParams.set('redirect_uri', redirectUri)
   authUrl.searchParams.set('scope', scope)
   authUrl.searchParams.set('state', state)
 

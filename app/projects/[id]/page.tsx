@@ -16,7 +16,7 @@ import {
   ChevronUp,
   Github,
   Triangle,
-  Link2,
+  Settings,
   Shield,
   Bug,
   Package,
@@ -57,12 +57,15 @@ interface Project {
   url: string
   githubRepo?: string
   vercelProject?: string
-  githubUsername?: string
-  vercelUsername?: string
-  githubAccessToken?: string
-  vercelAccessToken?: string
   createdAt: string
   scans: Scan[]
+}
+
+interface UserIntegrations {
+  githubConnected: boolean
+  githubUsername: string | null
+  vercelConnected: boolean
+  vercelUsername: string | null
 }
 
 interface GitHubScanResult {
@@ -89,6 +92,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const resolvedParams = use(params)
   const searchParams = useSearchParams()
   const [project, setProject] = useState<Project | null>(null)
+  const [integrations, setIntegrations] = useState<UserIntegrations | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [scanning, setScanning] = useState(false)
@@ -100,7 +104,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [savingRepo, setSavingRepo] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
 
-  // Check for OAuth success messages
+  // Check for success messages
   useEffect(() => {
     const github = searchParams.get('github')
     const vercel = searchParams.get('vercel')
@@ -116,6 +120,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
   useEffect(() => {
     fetchProject()
+    fetchUserIntegrations()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedParams.id])
 
@@ -135,6 +140,23 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       setError(err instanceof Error ? err.message : 'Failed to load project')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function fetchUserIntegrations() {
+    try {
+      const res = await fetch('/api/user/settings')
+      if (res.ok) {
+        const data = await res.json()
+        setIntegrations({
+          githubConnected: data.user.githubConnected,
+          githubUsername: data.user.githubUsername,
+          vercelConnected: data.user.vercelConnected,
+          vercelUsername: data.user.vercelUsername,
+        })
+      }
+    } catch (err) {
+      console.error('Failed to fetch integrations:', err)
     }
   }
 
@@ -158,7 +180,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   }
 
   async function handleGitHubScan() {
-    if (!project?.githubAccessToken || !project?.githubRepo) return
+    if (!integrations?.githubConnected || !project?.githubRepo) return
     setGithubScanning(true)
     setError('')
     try {
@@ -189,20 +211,12 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       if (!res.ok) throw new Error('Failed to save')
       await fetchProject()
       setShowGithubModal(false)
-      setSuccessMessage('GitHub repo saved! Now connect your GitHub account.')
+      setSuccessMessage('GitHub repo saved!')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save repo')
     } finally {
       setSavingRepo(false)
     }
-  }
-
-  function connectGitHub() {
-    window.location.href = `/api/auth/github?projectId=${resolvedParams.id}`
-  }
-
-  function connectVercel() {
-    window.location.href = `/api/auth/vercel?projectId=${resolvedParams.id}`
   }
 
   function togglePhase(index: number) {
@@ -216,11 +230,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   }
 
   function parseJSON(data: unknown, fallback: unknown[] = []): unknown[] {
-    // Handle already-parsed objects (from Prisma JSON fields)
-    if (Array.isArray(data)) {
-      return data
-    }
-    // Handle string JSON
+    if (Array.isArray(data)) return data
     if (typeof data === 'string') {
       try {
         const parsed = JSON.parse(data)
@@ -229,10 +239,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         return fallback
       }
     }
-    // Handle object (might be a single finding/recommendation)
-    if (data && typeof data === 'object') {
-      return [data]
-    }
+    if (data && typeof data === 'object') return [data]
     return fallback
   }
 
@@ -407,7 +414,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                 )}
               </button>
               
-              {project.githubAccessToken && project.githubRepo && (
+              {integrations?.githubConnected && project.githubRepo && (
                 <button
                   onClick={handleGitHubScan}
                   disabled={githubScanning}
@@ -442,7 +449,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                       <p className="text-sm text-slate-400">Deep code analysis</p>
                     </div>
                   </div>
-                  {project.githubAccessToken ? (
+                  {integrations?.githubConnected ? (
                     <span className="px-2 py-1 bg-emerald-900/30 text-emerald-400 rounded-full text-xs flex items-center gap-1">
                       <Check className="h-3 w-3" />
                       Connected
@@ -454,10 +461,10 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   )}
                 </div>
 
-                {project.githubAccessToken ? (
+                {integrations?.githubConnected ? (
                   <div className="space-y-3">
                     <p className="text-sm text-slate-300">
-                      <span className="text-slate-500">User:</span> @{project.githubUsername}
+                      <span className="text-slate-500">Account:</span> @{integrations.githubUsername}
                     </p>
                     {project.githubRepo ? (
                       <p className="text-sm text-slate-300 truncate">
@@ -468,7 +475,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                         onClick={() => setShowGithubModal(true)}
                         className="text-sm text-indigo-400 hover:text-indigo-300"
                       >
-                        + Add repository URL
+                        + Set repository for this project
                       </button>
                     )}
                   </div>
@@ -491,13 +498,13 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                         Dependency audit
                       </li>
                     </ul>
-                    <button
-                      onClick={() => setShowGithubModal(true)}
+                    <Link
+                      href="/settings"
                       className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
                     >
-                      <Link2 className="h-4 w-4" />
-                      Connect GitHub
-                    </button>
+                      <Settings className="h-4 w-4" />
+                      Connect in Settings
+                    </Link>
                   </div>
                 )}
               </div>
@@ -514,7 +521,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                       <p className="text-sm text-slate-400">Deployment analysis</p>
                     </div>
                   </div>
-                  {project.vercelAccessToken ? (
+                  {integrations?.vercelConnected ? (
                     <span className="px-2 py-1 bg-emerald-900/30 text-emerald-400 rounded-full text-xs flex items-center gap-1">
                       <Check className="h-3 w-3" />
                       Connected
@@ -526,10 +533,10 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   )}
                 </div>
 
-                {project.vercelAccessToken ? (
+                {integrations?.vercelConnected ? (
                   <div className="space-y-3">
                     <p className="text-sm text-slate-300">
-                      <span className="text-slate-500">User:</span> {project.vercelUsername}
+                      <span className="text-slate-500">Account:</span> {integrations.vercelUsername}
                     </p>
                     {project.vercelProject && (
                       <p className="text-sm text-slate-300">
@@ -556,13 +563,13 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                         Build & deploy status
                       </li>
                     </ul>
-                    <button
-                      onClick={connectVercel}
+                    <Link
+                      href="/settings"
                       className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
                     >
-                      <Link2 className="h-4 w-4" />
-                      Connect Vercel
-                    </button>
+                      <Settings className="h-4 w-4" />
+                      Connect in Settings
+                    </Link>
                   </div>
                 )}
               </div>
@@ -645,7 +652,6 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     key={phase.id}
                     className="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden"
                   >
-                    {/* Phase Header */}
                     <button
                       onClick={() => togglePhase(index)}
                       className="w-full p-5 flex items-center justify-between hover:bg-slate-800/80 transition-colors"
@@ -669,10 +675,8 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                       </div>
                     </button>
 
-                    {/* Expanded Content */}
                     {isExpanded && (
                       <div className="px-5 pb-5 border-t border-slate-700 pt-4">
-                        {/* Findings */}
                         {findings.length > 0 && (
                           <div className="mb-4">
                             <h4 className="text-sm font-semibold text-slate-400 mb-3">Findings:</h4>
@@ -702,7 +706,6 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                           </div>
                         )}
 
-                        {/* Recommendations */}
                         {recommendations.length > 0 && (
                           <div className="border-t border-slate-700 pt-4">
                             <h4 className="text-sm font-semibold text-slate-400 mb-3">💡 Recommendations:</h4>
@@ -797,7 +800,6 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             )}
           </>
         ) : (
-          /* No scans yet */
           <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-12 text-center">
             <Rocket className="h-16 w-16 text-slate-600 mx-auto mb-4" />
             <h2 className="text-2xl font-semibold mb-2">No Scans Yet</h2>
@@ -832,7 +834,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold flex items-center gap-2">
                 <Github className="h-6 w-6" />
-                Connect GitHub
+                Set GitHub Repository
               </h2>
               <button
                 onClick={() => setShowGithubModal(false)}
@@ -844,56 +846,32 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">GitHub Repository URL</label>
+                <label className="block text-sm font-medium mb-2">Repository (owner/repo)</label>
                 <input
                   type="text"
                   value={githubRepoUrl || project?.githubRepo || ''}
                   onChange={(e) => setGithubRepoUrl(e.target.value)}
                   className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:border-indigo-500"
-                  placeholder="https://github.com/username/repo"
+                  placeholder="username/repository"
                 />
-                <p className="text-xs text-slate-500 mt-1">Enter the URL of your GitHub repository</p>
-              </div>
-
-              <div className="bg-slate-700/50 rounded-lg p-4">
-                <h4 className="text-sm font-medium mb-2">What we&apos;ll scan:</h4>
-                <ul className="text-sm text-slate-400 space-y-1">
-                  <li>✓ Leaked secrets & API keys</li>
-                  <li>✓ Debug statements (console.log, debugger)</li>
-                  <li>✓ Environment variable setup</li>
-                  <li>✓ Dependency vulnerabilities</li>
-                  <li>✓ README & documentation</li>
-                </ul>
+                <p className="text-xs text-slate-500 mt-1">Enter in format: owner/repo (e.g., msanchezgrice/launchready)</p>
               </div>
 
               <div className="flex gap-3">
-                {!project?.githubAccessToken && githubRepoUrl && (
-                  <button
-                    onClick={handleSaveGithubRepo}
-                    disabled={savingRepo}
-                    className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg font-medium transition-colors"
-                  >
-                    {savingRepo ? 'Saving...' : 'Save Repo URL'}
-                  </button>
-                )}
                 <button
-                  onClick={() => {
-                    if (githubRepoUrl && !project?.githubRepo) {
-                      handleSaveGithubRepo().then(connectGitHub)
-                    } else {
-                      connectGitHub()
-                    }
-                  }}
-                  className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                  onClick={() => setShowGithubModal(false)}
+                  className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg font-medium transition-colors"
                 >
-                  <Github className="h-4 w-4" />
-                  {project?.githubAccessToken ? 'Reconnect' : 'Authorize GitHub'}
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveGithubRepo}
+                  disabled={savingRepo || !githubRepoUrl}
+                  className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg font-medium transition-colors"
+                >
+                  {savingRepo ? 'Saving...' : 'Save'}
                 </button>
               </div>
-
-              <p className="text-xs text-slate-500 text-center">
-                We&apos;ll request read-only access to your repository
-              </p>
             </div>
           </div>
         </div>

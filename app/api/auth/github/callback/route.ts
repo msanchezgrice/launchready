@@ -1,6 +1,6 @@
 /**
  * GitHub OAuth Callback
- * Exchanges code for access token and stores it
+ * Exchanges code for access token and stores it at user level
  */
 
 import { NextResponse } from 'next/server'
@@ -14,19 +14,19 @@ export async function GET(request: Request) {
 
   if (error) {
     console.error('[GitHub OAuth] Error:', error)
-    return NextResponse.redirect(new URL('/dashboard?error=github_auth_failed', request.url))
+    return NextResponse.redirect(new URL('/settings?error=github_auth_failed', request.url))
   }
 
   if (!code || !state) {
-    return NextResponse.redirect(new URL('/dashboard?error=missing_params', request.url))
+    return NextResponse.redirect(new URL('/settings?error=missing_params', request.url))
   }
 
-  // Decode state to get projectId and userId
-  let stateData: { projectId: string; userId: string }
+  // Decode state to get userId and returnTo
+  let stateData: { userId: string; returnTo?: string }
   try {
     stateData = JSON.parse(Buffer.from(state, 'base64').toString())
   } catch {
-    return NextResponse.redirect(new URL('/dashboard?error=invalid_state', request.url))
+    return NextResponse.redirect(new URL('/settings?error=invalid_state', request.url))
   }
 
   const clientId = process.env.GITHUB_CLIENT_ID
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
 
   if (!clientId || !clientSecret) {
     console.error('[GitHub OAuth] Missing credentials')
-    return NextResponse.redirect(new URL('/dashboard?error=config_error', request.url))
+    return NextResponse.redirect(new URL('/settings?error=config_error', request.url))
   }
 
   try {
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
 
     if (tokenData.error) {
       console.error('[GitHub OAuth] Token error:', tokenData.error)
-      return NextResponse.redirect(new URL('/dashboard?error=token_exchange_failed', request.url))
+      return NextResponse.redirect(new URL('/settings?error=token_exchange_failed', request.url))
     }
 
     const accessToken = tokenData.access_token
@@ -70,34 +70,33 @@ export async function GET(request: Request) {
     })
     const githubUser = await userResponse.json()
 
-    // Find the project and verify ownership
-    const project = await prisma.project.findFirst({
-      where: {
-        id: stateData.projectId,
-        user: { clerkId: stateData.userId },
-      },
+    // Find the user by Clerk ID
+    const user = await prisma.user.findUnique({
+      where: { clerkId: stateData.userId },
     })
 
-    if (!project) {
-      return NextResponse.redirect(new URL('/dashboard?error=project_not_found', request.url))
+    if (!user) {
+      return NextResponse.redirect(new URL('/settings?error=user_not_found', request.url))
     }
 
-    // Update project with GitHub token
-    await prisma.project.update({
-      where: { id: project.id },
+    // Update user with GitHub token (user-level, not project-level)
+    await prisma.user.update({
+      where: { id: user.id },
       data: {
         githubAccessToken: accessToken,
         githubUsername: githubUser.login,
+        githubConnectedAt: new Date(),
       },
     })
 
-    console.log(`[GitHub OAuth] Connected GitHub for project ${project.id}`)
+    console.log(`[GitHub OAuth] Connected GitHub for user ${user.id} (${githubUser.login})`)
 
+    const returnTo = stateData.returnTo || '/settings'
     return NextResponse.redirect(
-      new URL(`/projects/${project.id}?github=connected`, request.url)
+      new URL(`${returnTo}?github=connected`, request.url)
     )
   } catch (error) {
     console.error('[GitHub OAuth] Error:', error)
-    return NextResponse.redirect(new URL('/dashboard?error=github_auth_failed', request.url))
+    return NextResponse.redirect(new URL('/settings?error=github_auth_failed', request.url))
   }
 }

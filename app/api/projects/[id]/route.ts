@@ -80,7 +80,27 @@ export async function PATCH(request: NextRequest, { params }: { params: Params }
     }
 
     const body = await request.json()
-    const { name, url, githubRepo, vercelProject } = body
+    const { name, url, githubRepo, vercelProject, autoScanEnabled, autoScanSchedule } = body
+
+    // Check if auto-scan is a paid feature
+    if (autoScanEnabled === true && dbUser.plan === 'free') {
+      return NextResponse.json(
+        { 
+          error: 'Auto-scan requires Pro plan or higher',
+          upgrade: true,
+        },
+        { status: 403 }
+      )
+    }
+
+    // Validate auto-scan schedule
+    const validSchedules = ['daily-6am', 'daily-12pm', 'daily-6pm', 'weekly-mon']
+    if (autoScanSchedule && !validSchedules.includes(autoScanSchedule)) {
+      return NextResponse.json(
+        { error: 'Invalid auto-scan schedule' },
+        { status: 400 }
+      )
+    }
 
     // Update project
     const updatedProject = await prisma.project.update({
@@ -90,6 +110,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Params }
         ...(url && { url }),
         ...(githubRepo !== undefined && { githubRepo }),
         ...(vercelProject !== undefined && { vercelProject }),
+        ...(typeof autoScanEnabled === 'boolean' && { autoScanEnabled }),
+        ...(autoScanSchedule !== undefined && { 
+          autoScanSchedule: autoScanSchedule || null 
+        }),
       },
     })
 

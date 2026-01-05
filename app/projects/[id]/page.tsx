@@ -3,6 +3,7 @@
 import { useEffect, useState, use } from 'react'
 import { UserButton } from '@clerk/nextjs'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
   Rocket,
   ArrowLeft,
@@ -13,6 +14,12 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  Github,
+  Triangle,
+  Link2,
+  Shield,
+  Bug,
+  Package,
 } from 'lucide-react'
 
 interface Finding {
@@ -48,17 +55,64 @@ interface Project {
   id: string
   name: string
   url: string
+  githubRepo?: string
+  vercelProject?: string
+  githubUsername?: string
+  vercelUsername?: string
+  githubAccessToken?: string
+  vercelAccessToken?: string
   createdAt: string
   scans: Scan[]
 }
 
+interface GitHubScanResult {
+  connected: boolean
+  repoFound: boolean
+  score: number
+  maxScore: number
+  findings: Array<{
+    type: 'success' | 'warning' | 'error'
+    category: string
+    message: string
+    details?: string
+    file?: string
+  }>
+  recommendations: Array<{
+    priority: string
+    title: string
+    description: string
+    actionable: string
+  }>
+}
+
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params)
+  const searchParams = useSearchParams()
   const [project, setProject] = useState<Project | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [scanning, setScanning] = useState(false)
   const [expandedPhases, setExpandedPhases] = useState<Set<number>>(new Set())
+  const [githubScan, setGithubScan] = useState<GitHubScanResult | null>(null)
+  const [githubScanning, setGithubScanning] = useState(false)
+  const [showGithubModal, setShowGithubModal] = useState(false)
+  const [githubRepoUrl, setGithubRepoUrl] = useState('')
+  const [savingRepo, setSavingRepo] = useState(false)
+  const [successMessage, setSuccessMessage] = useState('')
+
+  // Check for OAuth success messages
+  useEffect(() => {
+    const github = searchParams.get('github')
+    const vercel = searchParams.get('vercel')
+    if (github === 'connected') {
+      setSuccessMessage('GitHub connected successfully!')
+      window.history.replaceState({}, '', `/projects/${resolvedParams.id}`)
+    }
+    if (vercel === 'connected') {
+      setSuccessMessage('Vercel connected successfully!')
+      window.history.replaceState({}, '', `/projects/${resolvedParams.id}`)
+    }
+  }, [searchParams, resolvedParams.id])
 
   useEffect(() => {
     fetchProject()
@@ -101,6 +155,54 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     } finally {
       setScanning(false)
     }
+  }
+
+  async function handleGitHubScan() {
+    if (!project?.githubAccessToken || !project?.githubRepo) return
+    setGithubScanning(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/projects/${resolvedParams.id}/github-scan`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || data.message || 'GitHub scan failed')
+      }
+      const data = await res.json()
+      setGithubScan(data.result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'GitHub scan failed')
+    } finally {
+      setGithubScanning(false)
+    }
+  }
+
+  async function handleSaveGithubRepo() {
+    setSavingRepo(true)
+    try {
+      const res = await fetch(`/api/projects/${resolvedParams.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ githubRepo: githubRepoUrl }),
+      })
+      if (!res.ok) throw new Error('Failed to save')
+      await fetchProject()
+      setShowGithubModal(false)
+      setSuccessMessage('GitHub repo saved! Now connect your GitHub account.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save repo')
+    } finally {
+      setSavingRepo(false)
+    }
+  }
+
+  function connectGitHub() {
+    window.location.href = `/api/auth/github?projectId=${resolvedParams.id}`
+  }
+
+  function connectVercel() {
+    window.location.href = `/api/auth/vercel?projectId=${resolvedParams.id}`
   }
 
   function togglePhase(index: number) {
@@ -272,8 +374,21 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
               </div>
             </div>
 
+            {/* Success Message */}
+            {successMessage && (
+              <div className="mb-6 p-4 bg-emerald-900/20 border border-emerald-600/30 rounded-lg flex items-center justify-between">
+                <p className="text-emerald-200 flex items-center gap-2">
+                  <Check className="h-5 w-5" />
+                  {successMessage}
+                </p>
+                <button onClick={() => setSuccessMessage('')} className="text-emerald-400 hover:text-white">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+
             {/* Actions */}
-            <div className="flex gap-4 mb-8">
+            <div className="flex flex-wrap gap-4 mb-8">
               <button
                 onClick={handleRescan}
                 disabled={scanning}
@@ -291,7 +406,230 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   </>
                 )}
               </button>
+              
+              {project.githubAccessToken && project.githubRepo && (
+                <button
+                  onClick={handleGitHubScan}
+                  disabled={githubScanning}
+                  className="px-6 py-3 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 rounded-lg font-medium transition-colors flex items-center gap-2"
+                >
+                  {githubScanning ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      Scanning Repo...
+                    </>
+                  ) : (
+                    <>
+                      <Github className="h-4 w-4" />
+                      Scan GitHub Repo
+                    </>
+                  )}
+                </button>
+              )}
             </div>
+
+            {/* GitHub & Vercel Integration Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              {/* GitHub Integration */}
+              <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-slate-700 rounded-lg">
+                      <Github className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold">GitHub Integration</h3>
+                      <p className="text-sm text-slate-400">Deep code analysis</p>
+                    </div>
+                  </div>
+                  {project.githubAccessToken ? (
+                    <span className="px-2 py-1 bg-emerald-900/30 text-emerald-400 rounded-full text-xs flex items-center gap-1">
+                      <Check className="h-3 w-3" />
+                      Connected
+                    </span>
+                  ) : (
+                    <span className="px-2 py-1 bg-slate-700 text-slate-400 rounded-full text-xs">
+                      Not Connected
+                    </span>
+                  )}
+                </div>
+
+                {project.githubAccessToken ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-slate-300">
+                      <span className="text-slate-500">User:</span> @{project.githubUsername}
+                    </p>
+                    {project.githubRepo ? (
+                      <p className="text-sm text-slate-300 truncate">
+                        <span className="text-slate-500">Repo:</span> {project.githubRepo}
+                      </p>
+                    ) : (
+                      <button
+                        onClick={() => setShowGithubModal(true)}
+                        className="text-sm text-indigo-400 hover:text-indigo-300"
+                      >
+                        + Add repository URL
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-sm text-slate-400">
+                      Unlock deep code scanning:
+                    </p>
+                    <ul className="text-sm text-slate-400 space-y-1">
+                      <li className="flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-red-400" />
+                        Secret detection
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Bug className="h-4 w-4 text-amber-400" />
+                        Debug statement finder
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Package className="h-4 w-4 text-blue-400" />
+                        Dependency audit
+                      </li>
+                    </ul>
+                    <button
+                      onClick={() => setShowGithubModal(true)}
+                      className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Link2 className="h-4 w-4" />
+                      Connect GitHub
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Vercel Integration */}
+              <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-slate-700 rounded-lg">
+                      <Triangle className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold">Vercel Integration</h3>
+                      <p className="text-sm text-slate-400">Deployment analysis</p>
+                    </div>
+                  </div>
+                  {project.vercelAccessToken ? (
+                    <span className="px-2 py-1 bg-emerald-900/30 text-emerald-400 rounded-full text-xs flex items-center gap-1">
+                      <Check className="h-3 w-3" />
+                      Connected
+                    </span>
+                  ) : (
+                    <span className="px-2 py-1 bg-slate-700 text-slate-400 rounded-full text-xs">
+                      Not Connected
+                    </span>
+                  )}
+                </div>
+
+                {project.vercelAccessToken ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-slate-300">
+                      <span className="text-slate-500">User:</span> {project.vercelUsername}
+                    </p>
+                    {project.vercelProject && (
+                      <p className="text-sm text-slate-300">
+                        <span className="text-slate-500">Project:</span> {project.vercelProject}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-sm text-slate-400">
+                      Unlock deployment insights:
+                    </p>
+                    <ul className="text-sm text-slate-400 space-y-1">
+                      <li className="flex items-center gap-2">
+                        <Check className="h-4 w-4 text-emerald-400" />
+                        Environment variables
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="h-4 w-4 text-emerald-400" />
+                        Domain configuration
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="h-4 w-4 text-emerald-400" />
+                        Build & deploy status
+                      </li>
+                    </ul>
+                    <button
+                      onClick={connectVercel}
+                      className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Link2 className="h-4 w-4" />
+                      Connect Vercel
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* GitHub Scan Results */}
+            {githubScan && (
+              <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 mb-8">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold flex items-center gap-2">
+                    <Github className="h-5 w-5" />
+                    GitHub Repository Analysis
+                  </h3>
+                  <span className={`text-2xl font-bold ${
+                    githubScan.score >= 80 ? 'text-emerald-400' :
+                    githubScan.score >= 60 ? 'text-amber-400' : 'text-red-400'
+                  }`}>
+                    {githubScan.score}/{githubScan.maxScore}
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {githubScan.findings.map((finding, idx) => (
+                    <div key={idx} className="flex items-start gap-2 text-sm">
+                      <span className={
+                        finding.type === 'success' ? 'text-emerald-400' :
+                        finding.type === 'warning' ? 'text-amber-400' : 'text-red-400'
+                      }>
+                        {finding.type === 'success' ? '✓' : finding.type === 'warning' ? '⚠' : '✗'}
+                      </span>
+                      <div>
+                        <span className="text-slate-300">{finding.message}</span>
+                        {finding.file && (
+                          <span className="text-slate-500 ml-2">({finding.file})</span>
+                        )}
+                        {finding.details && (
+                          <p className="text-xs text-slate-500 mt-1">{finding.details}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {githubScan.recommendations.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-slate-700">
+                    <h4 className="text-sm font-semibold text-slate-400 mb-3">💡 Recommendations</h4>
+                    <div className="space-y-2">
+                      {githubScan.recommendations.map((rec, idx) => (
+                        <div key={idx} className="bg-slate-700/30 rounded-lg p-3">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              rec.priority === 'high' ? 'bg-red-500/20 text-red-400' :
+                              rec.priority === 'medium' ? 'bg-amber-500/20 text-amber-400' :
+                              'bg-slate-500/20 text-slate-400'
+                            }`}>
+                              {rec.priority}
+                            </span>
+                            <span className="font-medium text-white">{rec.title}</span>
+                          </div>
+                          <p className="text-sm text-slate-400">{rec.actionable}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Phase Breakdown */}
             <h2 className="text-2xl font-bold mb-6">Phase Breakdown</h2>
@@ -486,6 +824,80 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           </div>
         )}
       </main>
+
+      {/* GitHub Repo Modal */}
+      {showGithubModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-800 rounded-xl p-6 max-w-md w-full border border-slate-700 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Github className="h-6 w-6" />
+                Connect GitHub
+              </h2>
+              <button
+                onClick={() => setShowGithubModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">GitHub Repository URL</label>
+                <input
+                  type="text"
+                  value={githubRepoUrl || project?.githubRepo || ''}
+                  onChange={(e) => setGithubRepoUrl(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:border-indigo-500"
+                  placeholder="https://github.com/username/repo"
+                />
+                <p className="text-xs text-slate-500 mt-1">Enter the URL of your GitHub repository</p>
+              </div>
+
+              <div className="bg-slate-700/50 rounded-lg p-4">
+                <h4 className="text-sm font-medium mb-2">What we&apos;ll scan:</h4>
+                <ul className="text-sm text-slate-400 space-y-1">
+                  <li>✓ Leaked secrets & API keys</li>
+                  <li>✓ Debug statements (console.log, debugger)</li>
+                  <li>✓ Environment variable setup</li>
+                  <li>✓ Dependency vulnerabilities</li>
+                  <li>✓ README & documentation</li>
+                </ul>
+              </div>
+
+              <div className="flex gap-3">
+                {!project?.githubAccessToken && githubRepoUrl && (
+                  <button
+                    onClick={handleSaveGithubRepo}
+                    disabled={savingRepo}
+                    className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg font-medium transition-colors"
+                  >
+                    {savingRepo ? 'Saving...' : 'Save Repo URL'}
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    if (githubRepoUrl && !project?.githubRepo) {
+                      handleSaveGithubRepo().then(connectGitHub)
+                    } else {
+                      connectGitHub()
+                    }
+                  }}
+                  className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <Github className="h-4 w-4" />
+                  {project?.githubAccessToken ? 'Reconnect' : 'Authorize GitHub'}
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-500 text-center">
+                We&apos;ll request read-only access to your repository
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -80,7 +80,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Params }
     }
 
     const body = await request.json()
-    const { name, url } = body
+    const { name, url, githubRepo, vercelProject } = body
 
     // Update project
     const updatedProject = await prisma.project.update({
@@ -88,6 +88,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Params }
       data: {
         ...(name && { name }),
         ...(url && { url }),
+        ...(githubRepo !== undefined && { githubRepo }),
+        ...(vercelProject !== undefined && { vercelProject }),
       },
     })
 

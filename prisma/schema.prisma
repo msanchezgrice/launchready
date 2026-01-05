@@ -41,6 +41,16 @@ model Project {
   vercelProject String?
   autoScanEnabled Boolean @default(false)
   autoScanSchedule String? // cron expression
+  
+  // GitHub OAuth integration
+  githubAccessToken String?   // Encrypted access token
+  githubUsername    String?   // GitHub username for display
+  
+  // Vercel OAuth integration
+  vercelAccessToken String?   // Encrypted access token
+  vercelTeamId      String?   // Vercel team ID (if applicable)
+  vercelUsername    String?   // Vercel username for display
+  
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   scans         Scan[]

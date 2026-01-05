@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft,
@@ -43,8 +43,9 @@ const SCAN_PHASES: Omit<ScanPhase, 'status' | 'score' | 'duration' | 'summary'>[
   { id: 8, name: 'Monitoring', description: 'Error tracking, uptime alerts', icon: Bell, maxScore: 10 },
 ]
 
-export default function ScanProgressPage({ params }: { params: Promise<{ projectId: string }> }) {
-  const resolvedParams = use(params)
+export default function ScanProgressPage() {
+  const params = useParams()
+  const projectId = params.projectId as string
   const router = useRouter()
   const [project, setProject] = useState<{ name: string; url: string } | null>(null)
   const [phases, setPhases] = useState<ScanPhase[]>(
@@ -61,7 +62,7 @@ export default function ScanProgressPage({ params }: { params: Promise<{ project
   useEffect(() => {
     async function fetchProject() {
       try {
-        const res = await fetch(`/api/projects/${resolvedParams.projectId}`)
+        const res = await fetch(`/api/projects/${projectId}`)
         if (res.ok) {
           const data = await res.json()
           setProject({ name: data.project.name, url: data.project.url })
@@ -71,7 +72,7 @@ export default function ScanProgressPage({ params }: { params: Promise<{ project
       }
     }
     fetchProject()
-  }, [resolvedParams.projectId])
+  }, [projectId])
 
   // Timer
   useEffect(() => {
@@ -88,7 +89,7 @@ export default function ScanProgressPage({ params }: { params: Promise<{ project
     async function runScan() {
       try {
         // Start the actual scan
-        const res = await fetch(`/api/projects/${resolvedParams.projectId}/scan`, {
+        const res = await fetch(`/api/projects/${projectId}/scan`, {
           method: 'POST',
         })
 
@@ -134,7 +135,7 @@ export default function ScanProgressPage({ params }: { params: Promise<{ project
 
         // Redirect to project page after a short delay
         setTimeout(() => {
-          router.push(`/projects/${resolvedParams.projectId}?scanned=true`)
+          router.push(`/projects/${projectId}?scanned=true`)
         }, 2000)
       } catch (err) {
         console.error('Scan error:', err)
@@ -147,7 +148,7 @@ export default function ScanProgressPage({ params }: { params: Promise<{ project
     return () => {
       cancelled = true
     }
-  }, [resolvedParams.projectId, router])
+  }, [projectId, router])
 
   function getRandomSummary(phaseName: string): string {
     const summaries: Record<string, string[]> = {
@@ -174,7 +175,7 @@ export default function ScanProgressPage({ params }: { params: Promise<{ project
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between">
             <Link
-              href={`/projects/${resolvedParams.projectId}`}
+              href={`/projects/${projectId}`}
               className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -343,7 +344,7 @@ export default function ScanProgressPage({ params }: { params: Promise<{ project
               <div className="text-center">
                 <p className="text-slate-400 mb-4">Redirecting to your results...</p>
                 <Link
-                  href={`/projects/${resolvedParams.projectId}`}
+                  href={`/projects/${projectId}`}
                   className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-medium transition-colors inline-flex items-center gap-2"
                 >
                   View Results Now

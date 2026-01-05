@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft,
@@ -58,28 +58,20 @@ function getRandomSummary(phaseName: string): string {
   return options[Math.floor(Math.random() * options.length)]
 }
 
-export default function ScanProgressPage({ params }: { params: Promise<{ projectId: string }> }) {
-  const resolvedParams = use(params)
-  const projectId = resolvedParams.projectId
+function ScanContent({ projectId }: { projectId: string }) {
   const router = useRouter()
-  
-  const [mounted, setMounted] = useState(false)
   const [project, setProject] = useState<{ name: string; url: string } | null>(null)
-  const [phases, setPhases] = useState<ScanPhase[]>([])
+  const [phases, setPhases] = useState<ScanPhase[]>(
+    SCAN_PHASES.map((p) => ({ ...p, status: 'pending' as const }))
+  )
   const [totalProgress, setTotalProgress] = useState(0)
   const [elapsedTime, setElapsedTime] = useState(0)
   const [scanComplete, setScanComplete] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Initialize phases and mount state
-  useEffect(() => {
-    setMounted(true)
-    setPhases(SCAN_PHASES.map((p) => ({ ...p, status: 'pending' as const })))
-  }, [])
-
   // Fetch project info
   useEffect(() => {
-    if (!mounted || !projectId) return
+    if (!projectId) return
     
     async function fetchProject() {
       try {
@@ -93,22 +85,20 @@ export default function ScanProgressPage({ params }: { params: Promise<{ project
       }
     }
     fetchProject()
-  }, [mounted, projectId])
+  }, [projectId])
 
   // Timer
   useEffect(() => {
-    if (!mounted) return
-    
     const startTime = Date.now()
     const timer = setInterval(() => {
       setElapsedTime(Math.floor((Date.now() - startTime) / 1000))
     }, 1000)
     return () => clearInterval(timer)
-  }, [mounted])
+  }, [])
 
   // Run scan
   useEffect(() => {
-    if (!mounted || !projectId) return
+    if (!projectId) return
     
     let cancelled = false
 
@@ -173,7 +163,7 @@ export default function ScanProgressPage({ params }: { params: Promise<{ project
     return () => {
       cancelled = true
     }
-  }, [mounted, projectId, router])
+  }, [projectId, router])
 
   // Safely extract hostname
   const getHostname = () => {
@@ -189,33 +179,179 @@ export default function ScanProgressPage({ params }: { params: Promise<{ project
   const completedPhases = phases.filter((p) => p.status === 'complete').length
   const hostname = getHostname()
 
-  // Show loading until mounted
-  if (!mounted) {
+  if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 text-white">
-        <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
-            <div className="flex items-center justify-between">
-              <Link href="/dashboard" className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
-                <ArrowLeft className="h-4 w-4" />
-                Back
-              </Link>
-              <Link href="/" className="flex items-center gap-2">
-                <Rocket className="h-6 w-6 text-indigo-500" />
-                <span className="font-semibold">LaunchReady.me</span>
-              </Link>
-            </div>
-          </div>
-        </header>
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 py-12">
-          <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-400" />
-            <p className="mt-4 text-slate-400">Initializing scan...</p>
-          </div>
-        </main>
+      <div className="text-center">
+        <div className="inline-flex items-center justify-center w-20 h-20 bg-red-900/30 rounded-full mb-6">
+          <AlertCircle className="h-10 w-10 text-red-400" />
+        </div>
+        <h1 className="text-2xl font-bold mb-2">Scan Failed</h1>
+        <p className="text-slate-400 mb-6">{error}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-medium transition-colors inline-flex items-center gap-2"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Try Again
+        </button>
       </div>
     )
   }
+
+  return (
+    <>
+      {/* Title */}
+      <div className="text-center mb-10">
+        <h1 className="text-3xl font-bold mb-2">
+          {scanComplete ? (
+            <span className="text-emerald-400">Scan Complete! ✨</span>
+          ) : (
+            <>Scanning {hostname}...</>
+          )}
+        </h1>
+        {!scanComplete && (
+          <p className="text-slate-400">
+            Analyzing 8 critical launch areas
+          </p>
+        )}
+      </div>
+
+      {/* Progress Bar */}
+      <div className="mb-10">
+        <div className="flex items-center justify-between text-sm mb-2">
+          <span className="text-slate-400">
+            {completedPhases}/{phases.length} complete
+          </span>
+          <span className="text-indigo-400 font-medium">{totalProgress}%</span>
+        </div>
+        <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${
+              scanComplete
+                ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                : 'bg-gradient-to-r from-indigo-600 to-indigo-400'
+            }`}
+            style={{ width: `${totalProgress}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Phases List */}
+      <div className="space-y-4 mb-10">
+        {phases.map((phase, idx) => {
+          const Icon = phase.icon
+          const isActive = phase.status === 'scanning'
+          const isComplete = phase.status === 'complete'
+          
+          return (
+            <div
+              key={phase.id}
+              className={`bg-slate-800/50 border rounded-xl p-5 transition-all ${
+                isActive
+                  ? 'border-indigo-500/50 bg-indigo-900/20'
+                  : isComplete
+                  ? 'border-emerald-500/30'
+                  : 'border-slate-700/50 opacity-60'
+              }`}
+            >
+              <div className="flex items-start gap-4">
+                {/* Status Icon */}
+                <div className={`p-2 rounded-lg flex-shrink-0 ${
+                  isActive
+                    ? 'bg-indigo-600/30'
+                    : isComplete
+                    ? 'bg-emerald-600/30'
+                    : 'bg-slate-700/50'
+                }`}>
+                  {isActive ? (
+                    <Loader2 className="h-5 w-5 text-indigo-400 animate-spin" />
+                  ) : isComplete ? (
+                    <CheckCircle className="h-5 w-5 text-emerald-400" />
+                  ) : (
+                    <Icon className="h-5 w-5 text-slate-500" />
+                  )}
+                </div>
+
+                {/* Phase Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      {idx + 1}. {phase.name}
+                      {isActive && (
+                        <span className="text-xs text-indigo-400 font-normal">(checking...)</span>
+                      )}
+                    </h3>
+                    {isComplete && phase.score !== undefined && (
+                      <span className="text-sm font-medium text-emerald-400">
+                        {phase.score}/{phase.maxScore}
+                      </span>
+                    )}
+                    {isComplete && phase.duration !== undefined && (
+                      <span className="text-xs text-slate-500 ml-2">
+                        ({phase.duration}s)
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-400">
+                    {isComplete && phase.summary ? (
+                      <span className="text-slate-300">{phase.summary}</span>
+                    ) : (
+                      phase.description
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Timer */}
+      <div className="text-center text-slate-500 mb-10">
+        Total scan time: <span className="text-white font-medium">{elapsedTime} seconds</span>
+      </div>
+
+      {/* While You Wait CTA */}
+      {!scanComplete && (
+        <div className="bg-gradient-to-r from-indigo-900/30 to-purple-900/30 rounded-xl border border-indigo-500/30 p-6 text-center">
+          <h3 className="text-lg font-semibold mb-2">💡 While you wait...</h3>
+          <p className="text-slate-400 mb-4">
+            Your scan results will include actionable recommendations to improve your launch readiness score.
+          </p>
+          <div className="flex flex-wrap justify-center gap-3 text-sm">
+            <span className="px-3 py-1 bg-slate-800/50 rounded-full text-slate-300">
+              ✅ Save these results
+            </span>
+            <span className="px-3 py-1 bg-slate-800/50 rounded-full text-slate-300">
+              ✅ Track improvements
+            </span>
+            <span className="px-3 py-1 bg-slate-800/50 rounded-full text-slate-300">
+              ✅ Get daily scans
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Scan Complete Actions */}
+      {scanComplete && (
+        <div className="text-center">
+          <p className="text-slate-400 mb-4">Redirecting to your results...</p>
+          <Link
+            href={`/projects/${projectId}`}
+            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-medium transition-colors inline-flex items-center gap-2"
+          >
+            View Results Now
+            <ArrowLeft className="h-4 w-4 rotate-180" />
+          </Link>
+        </div>
+      )}
+    </>
+  )
+}
+
+export default function ScanProgressPage() {
+  const params = useParams()
+  const projectId = params?.projectId as string || ''
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 text-white">
@@ -239,169 +375,13 @@ export default function ScanProgressPage({ params }: { params: Promise<{ project
       </header>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-12">
-        {error ? (
-          <div className="text-center">
-            <div className="inline-flex items-center justify-center w-20 h-20 bg-red-900/30 rounded-full mb-6">
-              <AlertCircle className="h-10 w-10 text-red-400" />
-            </div>
-            <h1 className="text-2xl font-bold mb-2">Scan Failed</h1>
-            <p className="text-slate-400 mb-6">{error}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-medium transition-colors inline-flex items-center gap-2"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Try Again
-            </button>
-          </div>
+        {projectId ? (
+          <ScanContent projectId={projectId} />
         ) : (
-          <>
-            {/* Title */}
-            <div className="text-center mb-10">
-              <h1 className="text-3xl font-bold mb-2">
-                {scanComplete ? (
-                  <span className="text-emerald-400">Scan Complete! ✨</span>
-                ) : (
-                  <>Scanning {hostname}...</>
-                )}
-              </h1>
-              {!scanComplete && (
-                <p className="text-slate-400">
-                  Analyzing 8 critical launch areas
-                </p>
-              )}
-            </div>
-
-            {/* Progress Bar */}
-            <div className="mb-10">
-              <div className="flex items-center justify-between text-sm mb-2">
-                <span className="text-slate-400">
-                  {completedPhases}/{phases.length || 8} complete
-                </span>
-                <span className="text-indigo-400 font-medium">{totalProgress}%</span>
-              </div>
-              <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    scanComplete
-                      ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
-                      : 'bg-gradient-to-r from-indigo-600 to-indigo-400'
-                  }`}
-                  style={{ width: `${totalProgress}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Phases List */}
-            <div className="space-y-4 mb-10">
-              {phases.map((phase, idx) => {
-                const Icon = phase.icon
-                const isActive = phase.status === 'scanning'
-                const isComplete = phase.status === 'complete'
-                
-                return (
-                  <div
-                    key={phase.id}
-                    className={`bg-slate-800/50 border rounded-xl p-5 transition-all ${
-                      isActive
-                        ? 'border-indigo-500/50 bg-indigo-900/20'
-                        : isComplete
-                        ? 'border-emerald-500/30'
-                        : 'border-slate-700/50 opacity-60'
-                    }`}
-                  >
-                    <div className="flex items-start gap-4">
-                      {/* Status Icon */}
-                      <div className={`p-2 rounded-lg flex-shrink-0 ${
-                        isActive
-                          ? 'bg-indigo-600/30'
-                          : isComplete
-                          ? 'bg-emerald-600/30'
-                          : 'bg-slate-700/50'
-                      }`}>
-                        {isActive ? (
-                          <Loader2 className="h-5 w-5 text-indigo-400 animate-spin" />
-                        ) : isComplete ? (
-                          <CheckCircle className="h-5 w-5 text-emerald-400" />
-                        ) : (
-                          <Icon className="h-5 w-5 text-slate-500" />
-                        )}
-                      </div>
-
-                      {/* Phase Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <h3 className="font-semibold flex items-center gap-2">
-                            {idx + 1}. {phase.name}
-                            {isActive && (
-                              <span className="text-xs text-indigo-400 font-normal">(checking...)</span>
-                            )}
-                          </h3>
-                          {isComplete && phase.score !== undefined && (
-                            <span className="text-sm font-medium text-emerald-400">
-                              {phase.score}/{phase.maxScore}
-                            </span>
-                          )}
-                          {isComplete && phase.duration !== undefined && (
-                            <span className="text-xs text-slate-500 ml-2">
-                              ({phase.duration}s)
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-sm text-slate-400">
-                          {isComplete && phase.summary ? (
-                            <span className="text-slate-300">{phase.summary}</span>
-                          ) : (
-                            phase.description
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Timer */}
-            <div className="text-center text-slate-500 mb-10">
-              Total scan time: <span className="text-white font-medium">{elapsedTime} seconds</span>
-            </div>
-
-            {/* While You Wait CTA */}
-            {!scanComplete && (
-              <div className="bg-gradient-to-r from-indigo-900/30 to-purple-900/30 rounded-xl border border-indigo-500/30 p-6 text-center">
-                <h3 className="text-lg font-semibold mb-2">💡 While you wait...</h3>
-                <p className="text-slate-400 mb-4">
-                  Your scan results will include actionable recommendations to improve your launch readiness score.
-                </p>
-                <div className="flex flex-wrap justify-center gap-3 text-sm">
-                  <span className="px-3 py-1 bg-slate-800/50 rounded-full text-slate-300">
-                    ✅ Save these results
-                  </span>
-                  <span className="px-3 py-1 bg-slate-800/50 rounded-full text-slate-300">
-                    ✅ Track improvements
-                  </span>
-                  <span className="px-3 py-1 bg-slate-800/50 rounded-full text-slate-300">
-                    ✅ Get daily scans
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Scan Complete Actions */}
-            {scanComplete && (
-              <div className="text-center">
-                <p className="text-slate-400 mb-4">Redirecting to your results...</p>
-                <Link
-                  href={`/projects/${projectId}`}
-                  className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-medium transition-colors inline-flex items-center gap-2"
-                >
-                  View Results Now
-                  <ArrowLeft className="h-4 w-4 rotate-180" />
-                </Link>
-              </div>
-            )}
-          </>
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-400" />
+            <p className="mt-4 text-slate-400">Loading...</p>
+          </div>
         )}
       </main>
     </div>

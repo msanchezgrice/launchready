@@ -16,12 +16,19 @@ import {
   ChevronUp,
   Github,
   Triangle,
-  Settings,
+  Settings as SettingsIcon,
   Shield,
   Bug,
   Package,
   FileDown,
   Loader2,
+  ClipboardList,
+  Clock,
+  Zap,
+  TrendingUp,
+  Copy,
+  ExternalLink as LinkIcon,
+  CheckCircle,
 } from 'lucide-react'
 
 interface Finding {
@@ -117,6 +124,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [loadingRepos, setLoadingRepos] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
   const [exportingPdf, setExportingPdf] = useState(false)
+  const [activeTab, setActiveTab] = useState<'overview' | 'recommendations' | 'history' | 'settings'>('overview')
 
   // Check for success messages
   useEffect(() => {
@@ -513,6 +521,58 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
               </button>
             </div>
 
+            {/* Tabs Navigation */}
+            <div className="border-b border-slate-700 mb-8">
+              <nav className="flex gap-1 overflow-x-auto">
+                <button
+                  onClick={() => setActiveTab('overview')}
+                  className={`px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
+                    activeTab === 'overview'
+                      ? 'text-indigo-400 border-b-2 border-indigo-400'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Overview
+                </button>
+                <button
+                  onClick={() => setActiveTab('recommendations')}
+                  className={`px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${
+                    activeTab === 'recommendations'
+                      ? 'text-indigo-400 border-b-2 border-indigo-400'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <ClipboardList className="h-4 w-4" />
+                  Recommendations
+                </button>
+                <button
+                  onClick={() => setActiveTab('history')}
+                  className={`px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${
+                    activeTab === 'history'
+                      ? 'text-indigo-400 border-b-2 border-indigo-400'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Clock className="h-4 w-4" />
+                  History
+                </button>
+                <button
+                  onClick={() => setActiveTab('settings')}
+                  className={`px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${
+                    activeTab === 'settings'
+                      ? 'text-indigo-400 border-b-2 border-indigo-400'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <SettingsIcon className="h-4 w-4" />
+                  Settings
+                </button>
+              </nav>
+            </div>
+
+            {/* Tab Content */}
+            {activeTab === 'overview' && (
+              <>
             {/* GitHub & Vercel Integration Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
               {/* GitHub Integration */}
@@ -788,9 +848,16 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                 )
               })}
             </div>
+              </>
+            )}
 
-            {/* Scan History */}
-            {project.scans.length > 1 && (
+            {/* Recommendations Tab */}
+            {activeTab === 'recommendations' && (
+              <RecommendationsTab phases={latestScan.phases} parseJSON={parseJSON} />
+            )}
+
+            {/* History Tab */}
+            {activeTab === 'history' && project.scans.length > 0 && (
               <>
                 <h2 className="text-2xl font-bold mb-6">Scan History</h2>
                 <div className="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden">
@@ -840,7 +907,24 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     </tbody>
                   </table>
                 </div>
+                {project.scans.length === 0 && (
+                  <div className="text-center py-12 text-slate-400">
+                    <Clock className="h-12 w-12 mx-auto mb-4 text-slate-600" />
+                    <p>No scan history yet. Run your first scan!</p>
+                  </div>
+                )}
               </>
+            )}
+
+            {/* Settings Tab */}
+            {activeTab === 'settings' && (
+              <ProjectSettingsTab 
+                project={project} 
+                integrations={integrations}
+                setShowGithubModal={setShowGithubModal}
+                setGithubRepoUrl={setGithubRepoUrl}
+                fetchUserRepos={fetchUserRepos}
+              />
             )}
           </>
         ) : (
@@ -950,6 +1034,335 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Recommendations Tab Component
+function RecommendationsTab({ 
+  phases, 
+  parseJSON 
+}: { 
+  phases: Phase[]
+  parseJSON: <T>(value: T | string | null, defaultValue: T) => T 
+}) {
+  const [sortBy, setSortBy] = useState<'priority' | 'phase'>('priority')
+  const [filterPhase, setFilterPhase] = useState<string>('all')
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  // Collect all recommendations from all phases
+  const allRecommendations = phases.flatMap((phase) => {
+    const recs = parseJSON(phase.recommendations, []) as Recommendation[]
+    return recs.map((rec, idx) => ({
+      ...rec,
+      phaseName: phase.phaseName,
+      phaseScore: phase.score,
+      phaseMaxScore: phase.maxScore,
+      id: `${phase.id}-${idx}`,
+    }))
+  })
+
+  // Sort recommendations
+  const sortedRecommendations = [...allRecommendations].sort((a, b) => {
+    if (sortBy === 'priority') {
+      const priorityOrder = { high: 0, medium: 1, low: 2 }
+      return (priorityOrder[a.priority || 'low'] || 2) - (priorityOrder[b.priority || 'low'] || 2)
+    }
+    return a.phaseName.localeCompare(b.phaseName)
+  })
+
+  // Filter recommendations
+  const filteredRecommendations = filterPhase === 'all'
+    ? sortedRecommendations
+    : sortedRecommendations.filter((r) => r.phaseName === filterPhase)
+
+  // Group by priority
+  const highPriority = filteredRecommendations.filter((r) => r.priority === 'high')
+  const mediumPriority = filteredRecommendations.filter((r) => r.priority === 'medium')
+  const lowPriority = filteredRecommendations.filter((r) => !r.priority || r.priority === 'low')
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
+  const uniquePhases = [...new Set(allRecommendations.map((r) => r.phaseName))]
+
+  if (allRecommendations.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <CheckCircle className="h-16 w-16 text-emerald-400 mx-auto mb-4" />
+        <h3 className="text-xl font-semibold mb-2">All Clear!</h3>
+        <p className="text-slate-400">No recommendations at this time. Your project is in great shape!</p>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <ClipboardList className="h-6 w-6 text-indigo-400" />
+            All Recommendations
+          </h2>
+          <p className="text-slate-400 text-sm mt-1">{allRecommendations.length} total improvements</p>
+        </div>
+        <div className="flex gap-3">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as 'priority' | 'phase')}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="priority">Sort by Priority</option>
+            <option value="phase">Sort by Phase</option>
+          </select>
+          <select
+            value={filterPhase}
+            onChange={(e) => setFilterPhase(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="all">All Phases</option>
+            {uniquePhases.map((phase) => (
+              <option key={phase} value={phase}>{phase}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* High Priority */}
+      {highPriority.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-red-400">
+            <Zap className="h-5 w-5" />
+            High Priority ({highPriority.length})
+          </h3>
+          <div className="space-y-4">
+            {highPriority.map((rec) => (
+              <RecommendationCard
+                key={rec.id}
+                rec={rec}
+                copiedId={copiedId}
+                onCopy={copyToClipboard}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Medium Priority */}
+      {mediumPriority.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-amber-400">
+            <AlertTriangle className="h-5 w-5" />
+            Medium Priority ({mediumPriority.length})
+          </h3>
+          <div className="space-y-4">
+            {mediumPriority.map((rec) => (
+              <RecommendationCard
+                key={rec.id}
+                rec={rec}
+                copiedId={copiedId}
+                onCopy={copyToClipboard}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Low Priority */}
+      {lowPriority.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-emerald-400">
+            <TrendingUp className="h-5 w-5" />
+            Low Priority ({lowPriority.length})
+          </h3>
+          <div className="space-y-4">
+            {lowPriority.map((rec) => (
+              <RecommendationCard
+                key={rec.id}
+                rec={rec}
+                copiedId={copiedId}
+                onCopy={copyToClipboard}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Recommendation Card Component
+function RecommendationCard({ 
+  rec, 
+  copiedId, 
+  onCopy 
+}: { 
+  rec: Recommendation & { phaseName: string; id: string }
+  copiedId: string | null
+  onCopy: (text: string, id: string) => void 
+}) {
+  return (
+    <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div>
+          <h4 className="font-semibold text-white mb-1">{rec.title}</h4>
+          <span className="text-xs px-2 py-0.5 bg-slate-700 rounded text-slate-400">
+            {rec.phaseName}
+          </span>
+        </div>
+        <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+          rec.priority === 'high' 
+            ? 'bg-red-900/30 text-red-400'
+            : rec.priority === 'medium'
+            ? 'bg-amber-900/30 text-amber-400'
+            : 'bg-emerald-900/30 text-emerald-400'
+        }`}>
+          {rec.priority || 'low'} priority
+        </span>
+      </div>
+      
+      {rec.description && (
+        <p className="text-sm text-slate-400 mb-3">{rec.description}</p>
+      )}
+      
+      {rec.actionable && (
+        <div className="bg-slate-900/50 rounded-lg p-3 mt-3">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm text-indigo-300">
+              <span className="text-indigo-400 font-medium">→ How to fix: </span>
+              {rec.actionable}
+            </p>
+            <button
+              onClick={() => onCopy(rec.actionable || '', rec.id)}
+              className="p-1 hover:bg-slate-700 rounded transition-colors flex-shrink-0"
+              title="Copy"
+            >
+              {copiedId === rec.id ? (
+                <Check className="h-4 w-4 text-emerald-400" />
+              ) : (
+                <Copy className="h-4 w-4 text-slate-400" />
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Project Settings Tab Component
+function ProjectSettingsTab({ 
+  project, 
+  integrations,
+  setShowGithubModal,
+  setGithubRepoUrl,
+  fetchUserRepos,
+}: { 
+  project: Project
+  integrations: UserIntegrations | null
+  setShowGithubModal: (show: boolean) => void
+  setGithubRepoUrl: (url: string) => void
+  fetchUserRepos: () => void
+}) {
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+          <SettingsIcon className="h-6 w-6 text-indigo-400" />
+          Project Settings
+        </h2>
+      </div>
+
+      {/* Project Info */}
+      <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+        <h3 className="text-lg font-semibold mb-4">Project Information</h3>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm text-slate-400">Project Name</label>
+            <p className="text-white font-medium mt-1">{project.name}</p>
+          </div>
+          <div>
+            <label className="text-sm text-slate-400">URL</label>
+            <p className="text-white font-medium mt-1">{project.url}</p>
+          </div>
+          <div>
+            <label className="text-sm text-slate-400">Created</label>
+            <p className="text-white font-medium mt-1">{new Date(project.createdAt).toLocaleDateString()}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* GitHub Connection */}
+      <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Github className="h-5 w-5" />
+          GitHub Repository
+        </h3>
+        {integrations?.githubConnected ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-400">Connected Account</p>
+                <p className="text-white font-medium">@{integrations.githubUsername}</p>
+              </div>
+              <span className="px-2 py-1 bg-emerald-900/30 text-emerald-400 rounded-full text-xs">
+                Connected
+              </span>
+            </div>
+            <div>
+              <p className="text-sm text-slate-400">Linked Repository</p>
+              <div className="flex items-center justify-between mt-1">
+                <p className="text-white font-medium">{project.githubRepo || 'Not set'}</p>
+                <button
+                  onClick={() => {
+                    setGithubRepoUrl(project.githubRepo || '')
+                    setShowGithubModal(true)
+                    fetchUserRepos()
+                  }}
+                  className="text-sm text-indigo-400 hover:text-indigo-300"
+                >
+                  {project.githubRepo ? 'Change' : 'Set Repository'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p className="text-slate-400 mb-4">Connect GitHub to enable deep code scanning.</p>
+            <Link
+              href="/settings"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Github className="h-4 w-4" />
+              Connect in Settings
+            </Link>
+          </div>
+        )}
+      </div>
+
+      {/* Auto-Scan Settings (placeholder) */}
+      <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <RefreshCw className="h-5 w-5" />
+          Auto-Scan Settings
+        </h3>
+        <div className="bg-amber-900/20 border border-amber-600/30 rounded-lg p-4">
+          <p className="text-amber-200 text-sm flex items-center gap-2">
+            <Zap className="h-4 w-4" />
+            Auto-scan is a Pro feature. Upgrade to enable daily automated scans.
+          </p>
+          <Link
+            href="/pricing"
+            className="inline-block mt-3 text-sm text-indigo-400 hover:text-indigo-300"
+          >
+            View pricing →
+          </Link>
+        </div>
+      </div>
     </div>
   )
 }

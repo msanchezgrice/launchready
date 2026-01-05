@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { UserButton } from '@clerk/nextjs'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -20,6 +20,15 @@ import {
   X,
   CheckCircle,
   AlertCircle,
+  LayoutGrid,
+  List,
+  SortAsc,
+  AlertTriangle,
+  TrendingUp,
+  TrendingDown,
+  Calendar,
+  FileDown,
+  Bell,
 } from 'lucide-react'
 import UpgradeModal from '@/components/ui/UpgradeModal'
 import { ProjectCardSkeleton } from '@/components/ui/Skeleton'
@@ -30,6 +39,8 @@ interface Project {
   name: string
   url: string
   createdAt: string
+  autoScanEnabled?: boolean
+  autoScanSchedule?: string
   scans: Array<{
     id: string
     score: number
@@ -53,6 +64,9 @@ interface Toast {
   message?: string
 }
 
+type SortOption = 'latest' | 'score' | 'name'
+type ViewMode = 'grid' | 'list'
+
 const PLAN_BADGES: Record<string, { icon: React.ElementType; label: string; color: string }> = {
   free: { icon: Rocket, label: 'Free', color: 'bg-slate-600' },
   pro: { icon: Star, label: 'Pro', color: 'bg-indigo-600' },
@@ -67,11 +81,13 @@ export default function DashboardClient() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [upgradeReason, setUpgradeReason] = useState<'project_limit' | 'scan_limit' | 'feature'>('project_limit')
-  const [newProject, setNewProject] = useState({ name: '', url: '' })
+  const [newProject, setNewProject] = useState({ name: '', url: '', githubRepo: '', autoScan: false })
   const [addingProject, setAddingProject] = useState(false)
   const [scanning, setScanning] = useState<string | null>(null)
   const [manageLoading, setManageLoading] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [viewMode, setViewMode] = useState<ViewMode>('grid')
+  const [sortBy, setSortBy] = useState<SortOption>('latest')
   const searchParams = useSearchParams()
 
   // Toast helpers
@@ -123,8 +139,52 @@ export default function DashboardClient() {
     }
   }
 
+  // Sort projects
+  const sortedProjects = useMemo(() => {
+    const sorted = [...projects]
+    switch (sortBy) {
+      case 'latest':
+        return sorted.sort((a, b) => {
+          const aDate = a.scans[0]?.scannedAt || a.createdAt
+          const bDate = b.scans[0]?.scannedAt || b.createdAt
+          return new Date(bDate).getTime() - new Date(aDate).getTime()
+        })
+      case 'score':
+        return sorted.sort((a, b) => {
+          const aScore = a.scans[0]?.score || 0
+          const bScore = b.scans[0]?.score || 0
+          return bScore - aScore
+        })
+      case 'name':
+        return sorted.sort((a, b) => a.name.localeCompare(b.name))
+      default:
+        return sorted
+    }
+  }, [projects, sortBy])
+
+  // Portfolio stats
+  const portfolioStats = useMemo(() => {
+    const projectsWithScores = projects.filter((p) => p.scans.length > 0)
+    const scores = projectsWithScores.map((p) => p.scans[0].score)
+    const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0
+    
+    const distribution = {
+      excellent: scores.filter((s) => s >= 90).length,
+      good: scores.filter((s) => s >= 80 && s < 90).length,
+      fair: scores.filter((s) => s >= 70 && s < 80).length,
+      poor: scores.filter((s) => s >= 60 && s < 70).length,
+      critical: scores.filter((s) => s < 60).length,
+    }
+
+    // Count phases with issues
+    const passed = scores.filter((s) => s >= 80).length
+    const warnings = scores.filter((s) => s >= 60 && s < 80).length
+    const failed = scores.filter((s) => s < 60).length
+
+    return { avgScore, distribution, passed, warnings, failed, total: projects.length }
+  }, [projects])
+
   function handleAddProjectClick() {
-    // Check if user has reached project limit
     if (userPlan && userPlan.projectCount >= userPlan.maxProjects && userPlan.maxProjects !== -1) {
       setUpgradeReason('project_limit')
       setShowUpgradeModal(true)
@@ -161,7 +221,7 @@ export default function DashboardClient() {
         return
       }
 
-      setNewProject({ name: '', url: '' })
+      setNewProject({ name: '', url: '', githubRepo: '', autoScan: false })
       setShowAddModal(false)
       addToast({
         type: 'success',
@@ -181,7 +241,6 @@ export default function DashboardClient() {
   }
 
   async function handleScanProject(projectId: string) {
-    // Check rate limit for free tier
     if (userPlan?.plan === 'free' && !userPlan?.canScan) {
       setUpgradeReason('scan_limit')
       setShowUpgradeModal(true)
@@ -285,7 +344,6 @@ export default function DashboardClient() {
       title: 'Scan complete!',
       message: 'Your project has been scanned successfully.',
     })
-    // Refresh projects to show new scan
     fetchProjects()
   }, [addToast])
 
@@ -298,11 +356,31 @@ export default function DashboardClient() {
     })
   }, [addToast])
 
-  // Loading skeleton
+  // Helper to get score color
+  function getScoreColor(score: number) {
+    if (score >= 80) return { text: 'text-emerald-400', bg: 'bg-emerald-500', dot: '🟢' }
+    if (score >= 60) return { text: 'text-amber-400', bg: 'bg-amber-500', dot: '🟡' }
+    return { text: 'text-red-400', bg: 'bg-red-500', dot: '🔴' }
+  }
+
+  // Helper to format relative time
+  function formatRelativeTime(date: string) {
+    const now = new Date()
+    const then = new Date(date)
+    const diffMs = now.getTime() - then.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+    
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    if (diffDays < 7) return `${diffDays}d ago`
+    return `${Math.floor(diffDays / 7)}w ago`
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900">
-        {/* Header skeleton */}
         <header className="border-b border-slate-800 bg-slate-900/80">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center h-16">
@@ -459,25 +537,39 @@ export default function DashboardClient() {
           </div>
         </div>
 
-        {/* Upgrade Banner for Free Users */}
-        {userPlan?.plan === 'free' && projects.length > 0 && (
-          <div className="mb-8 p-4 sm:p-6 bg-gradient-to-r from-indigo-900/30 to-purple-900/30 rounded-xl border border-indigo-500/30">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <h3 className="text-lg font-semibold text-white mb-1">
-                  🚀 Unlock More with Pro
-                </h3>
-                <p className="text-slate-300 text-sm">
-                  Get 6 projects, unlimited scans, and auto-scheduling
-                </p>
-              </div>
-              <Link
-                href="/pricing"
-                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2 whitespace-nowrap text-sm sm:text-base"
+        {/* Sort and View Controls */}
+        {projects.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-slate-400">Sort by:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
               >
-                Upgrade - $19/mo
-                <ArrowRight className="h-4 w-4" />
-              </Link>
+                <option value="latest">Latest Scan</option>
+                <option value="score">Score</option>
+                <option value="name">Name</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-slate-400 hidden sm:inline">View:</span>
+              <div className="flex bg-slate-800 rounded-lg p-1">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-slate-700 text-white' : 'text-slate-400'}`}
+                  title="Grid view"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-slate-700 text-white' : 'text-slate-400'}`}
+                  title="List view"
+                >
+                  <List className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -494,9 +586,12 @@ export default function DashboardClient() {
           <div className="mb-6 p-4 bg-amber-900/20 border border-amber-600/30 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <Clock className="h-5 w-5 text-amber-400 flex-shrink-0" />
-              <p className="text-amber-200 text-sm">
-                Next scan: {new Date(userPlan.nextScanTime).toLocaleString()}
-              </p>
+              <div>
+                <p className="text-amber-200 text-sm font-medium">Free Tier Rate Limit</p>
+                <p className="text-amber-200/70 text-xs">
+                  Next scan: {new Date(userPlan.nextScanTime).toLocaleString()}
+                </p>
+              </div>
             </div>
             <button
               onClick={() => {
@@ -510,7 +605,7 @@ export default function DashboardClient() {
           </div>
         )}
 
-        {/* Projects Grid */}
+        {/* Projects */}
         {projects.length === 0 ? (
           <div className="bg-slate-800/50 rounded-xl p-8 sm:p-12 border border-slate-700 text-center">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-slate-700/50 rounded-full mb-4">
@@ -529,114 +624,365 @@ export default function DashboardClient() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-            {projects.map((project) => {
-              const latestScan = project.scans[0]
-              const scoreColor =
-                !latestScan
-                  ? 'text-slate-400'
-                  : latestScan.score >= 80
-                  ? 'text-emerald-400'
-                  : latestScan.score >= 60
-                  ? 'text-amber-400'
-                  : 'text-red-400'
-              const isScanning = scanning === project.id
+          <>
+            {/* Grid View */}
+            {viewMode === 'grid' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+                {sortedProjects.map((project) => {
+                  const latestScan = project.scans[0]
+                  const scoreInfo = latestScan ? getScoreColor(latestScan.score) : null
+                  const isScanning = scanning === project.id
+                  
+                  // Count phases (mock data - in real app would come from scan phases)
+                  const passed = latestScan && latestScan.score >= 80 ? 5 : latestScan ? 3 : 0
+                  const warnings = latestScan ? Math.floor((100 - latestScan.score) / 15) : 0
+                  const failed = latestScan && latestScan.score < 60 ? Math.floor((60 - latestScan.score) / 20) : 0
 
-              return (
-                <div
-                  key={project.id}
-                  className={`bg-slate-800/50 rounded-xl p-5 sm:p-6 border border-slate-700 hover:border-slate-600 transition-all ${
-                    isScanning ? 'animate-pulse' : ''
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="min-w-0 flex-1">
-                      <Link
-                        href={`/projects/${project.id}`}
-                        className="text-lg font-semibold mb-1 hover:text-indigo-400 transition-colors block truncate"
-                      >
-                        {project.name}
-                      </Link>
-                      <a
-                        href={project.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-slate-400 text-sm hover:text-indigo-400 transition-colors flex items-center gap-1"
-                      >
-                        <span className="truncate">{new URL(project.url).hostname}</span>
-                        <ExternalLink className="h-3 w-3 flex-shrink-0" />
-                      </a>
-                    </div>
-                    {latestScan && (
-                      <div className="text-right ml-3">
-                        <div className={`text-3xl font-bold ${scoreColor}`}>
-                          {latestScan.score}
+                  return (
+                    <div
+                      key={project.id}
+                      className={`bg-slate-800/50 rounded-xl p-5 sm:p-6 border border-slate-700 hover:border-slate-600 transition-all ${
+                        isScanning ? 'animate-pulse' : ''
+                      }`}
+                    >
+                      {/* Header */}
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            {scoreInfo && <span className="text-lg">{scoreInfo.dot}</span>}
+                            <Link
+                              href={`/projects/${project.id}`}
+                              className="text-lg font-semibold hover:text-indigo-400 transition-colors truncate"
+                            >
+                              {project.name}
+                            </Link>
+                          </div>
+                          <a
+                            href={project.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-slate-400 text-sm hover:text-indigo-400 transition-colors flex items-center gap-1"
+                          >
+                            <span className="truncate">{new URL(project.url).hostname}</span>
+                            <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                          </a>
                         </div>
-                        <div className="text-xs text-slate-500">/100</div>
+                        {latestScan && (
+                          <div className="text-right ml-3">
+                            <div className={`text-3xl font-bold ${scoreInfo?.text}`}>
+                              {latestScan.score}
+                            </div>
+                            <div className="text-xs text-slate-500">/100</div>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
 
-                  {latestScan ? (
-                    <div className="mb-4">
-                      <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            latestScan.score >= 80
-                              ? 'bg-emerald-500'
-                              : latestScan.score >= 60
-                              ? 'bg-amber-500'
-                              : 'bg-red-500'
-                          }`}
-                          style={{ width: `${latestScan.score}%` }}
-                        />
+                      {/* Score Bar */}
+                      {latestScan ? (
+                        <div className="mb-4">
+                          <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${scoreInfo?.bg}`}
+                              style={{ width: `${latestScan.score}%` }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mb-4 p-3 bg-slate-700/30 rounded-lg">
+                          <p className="text-sm text-slate-400">No scans yet</p>
+                        </div>
+                      )}
+
+                      {/* Phase Summary */}
+                      {latestScan && (
+                        <div className="flex items-center gap-3 text-xs mb-3">
+                          {passed > 0 && (
+                            <span className="flex items-center gap-1 text-emerald-400">
+                              <CheckCircle className="h-3 w-3" />
+                              {passed} passed
+                            </span>
+                          )}
+                          {warnings > 0 && (
+                            <span className="flex items-center gap-1 text-amber-400">
+                              <AlertTriangle className="h-3 w-3" />
+                              {warnings} warnings
+                            </span>
+                          )}
+                          {failed > 0 && (
+                            <span className="flex items-center gap-1 text-red-400">
+                              <X className="h-3 w-3" />
+                              {failed} failed
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Meta Info */}
+                      <div className="flex items-center justify-between text-xs text-slate-500 mb-4">
+                        <span>
+                          Last scan: {latestScan ? formatRelativeTime(latestScan.scannedAt) : 'Never'}
+                        </span>
+                        {project.autoScanEnabled && (
+                          <span className="text-emerald-400 flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            Auto-scan ✓
+                          </span>
+                        )}
                       </div>
-                      <p className="text-xs text-slate-500 mt-2">
-                        Scanned {new Date(latestScan.scannedAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="mb-4 p-3 bg-slate-700/30 rounded-lg">
-                      <p className="text-sm text-slate-400">No scans yet</p>
-                    </div>
-                  )}
 
-                  <div className="flex gap-2">
-                    <Link
-                      href={`/projects/${project.id}`}
-                      className="flex-1 px-3 sm:px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
-                    >
-                      <span className="hidden sm:inline">View Details</span>
-                      <span className="sm:hidden">Details</span>
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
-                    <button
-                      onClick={() => handleScanProject(project.id)}
-                      disabled={isScanning}
-                      className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-sm font-medium transition-colors flex items-center justify-center"
-                      title="Rescan project"
-                    >
-                      <RefreshCw className={`h-4 w-4 ${isScanning ? 'animate-spin' : ''}`} />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteProject(project.id)}
-                      className="px-3 py-2 bg-slate-700 hover:bg-red-600 rounded-lg text-sm font-medium transition-colors"
-                      title="Delete project"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                      {/* Actions */}
+                      <div className="flex gap-2">
+                        <Link
+                          href={`/projects/${project.id}`}
+                          className="flex-1 px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors text-center"
+                        >
+                          View
+                        </Link>
+                        <button
+                          onClick={() => handleScanProject(project.id)}
+                          disabled={isScanning}
+                          className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-sm font-medium transition-colors"
+                          title="Rescan"
+                        >
+                          <RefreshCw className={`h-4 w-4 ${isScanning ? 'animate-spin' : ''}`} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProject(project.id)}
+                          className="px-3 py-2 bg-slate-700 hover:bg-red-600 rounded-lg text-sm font-medium transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* List View */}
+            {viewMode === 'list' && (
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-slate-800/80 border-b border-slate-700">
+                    <tr className="text-left text-sm text-slate-400">
+                      <th className="px-4 py-3 font-medium">Project</th>
+                      <th className="px-4 py-3 font-medium text-center hidden sm:table-cell">Score</th>
+                      <th className="px-4 py-3 font-medium hidden md:table-cell">Status</th>
+                      <th className="px-4 py-3 font-medium hidden lg:table-cell">Last Scan</th>
+                      <th className="px-4 py-3 font-medium text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700">
+                    {sortedProjects.map((project) => {
+                      const latestScan = project.scans[0]
+                      const scoreInfo = latestScan ? getScoreColor(latestScan.score) : null
+                      const isScanning = scanning === project.id
+
+                      return (
+                        <tr key={project.id} className="hover:bg-slate-700/30 transition-colors">
+                          <td className="px-4 py-4">
+                            <div className="flex items-center gap-3">
+                              {scoreInfo && <span>{scoreInfo.dot}</span>}
+                              <div>
+                                <Link
+                                  href={`/projects/${project.id}`}
+                                  className="font-medium hover:text-indigo-400 transition-colors"
+                                >
+                                  {project.name}
+                                </Link>
+                                <p className="text-xs text-slate-500">{new URL(project.url).hostname}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 text-center hidden sm:table-cell">
+                            {latestScan ? (
+                              <span className={`text-xl font-bold ${scoreInfo?.text}`}>
+                                {latestScan.score}
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-4 hidden md:table-cell">
+                            {latestScan ? (
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-emerald-400">✓ {latestScan.score >= 80 ? 5 : 3}</span>
+                                <span className="text-amber-400">⚠ {Math.floor((100 - latestScan.score) / 15)}</span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-500 text-sm">Not scanned</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-4 text-sm text-slate-400 hidden lg:table-cell">
+                            {latestScan ? formatRelativeTime(latestScan.scannedAt) : 'Never'}
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="flex items-center justify-end gap-2">
+                              <Link
+                                href={`/projects/${project.id}`}
+                                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-sm transition-colors"
+                              >
+                                View
+                              </Link>
+                              <button
+                                onClick={() => handleScanProject(project.id)}
+                                disabled={isScanning}
+                                className="p-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 rounded transition-colors"
+                              >
+                                <RefreshCw className={`h-4 w-4 ${isScanning ? 'animate-spin' : ''}`} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Portfolio Overview (for Pro+ users with multiple projects) */}
+            {projects.length > 1 && userPlan?.plan !== 'free' && (
+              <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Score Distribution */}
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6">
+                  <h3 className="text-lg font-semibold mb-4">Portfolio Overview</h3>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-400">Average Score</span>
+                      <span className={`text-xl font-bold ${getScoreColor(portfolioStats.avgScore).text}`}>
+                        {portfolioStats.avgScore}/100
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="w-24 text-slate-500">90-100</span>
+                        <div className="flex-1 bg-slate-700 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="h-full bg-emerald-500"
+                            style={{ width: `${(portfolioStats.distribution.excellent / portfolioStats.total) * 100}%` }}
+                          />
+                        </div>
+                        <span className="w-8 text-slate-400 text-right">{portfolioStats.distribution.excellent}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="w-24 text-slate-500">80-89</span>
+                        <div className="flex-1 bg-slate-700 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="h-full bg-emerald-400"
+                            style={{ width: `${(portfolioStats.distribution.good / portfolioStats.total) * 100}%` }}
+                          />
+                        </div>
+                        <span className="w-8 text-slate-400 text-right">{portfolioStats.distribution.good}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="w-24 text-slate-500">70-79</span>
+                        <div className="flex-1 bg-slate-700 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="h-full bg-amber-500"
+                            style={{ width: `${(portfolioStats.distribution.fair / portfolioStats.total) * 100}%` }}
+                          />
+                        </div>
+                        <span className="w-8 text-slate-400 text-right">{portfolioStats.distribution.fair}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="w-24 text-slate-500">60-69</span>
+                        <div className="flex-1 bg-slate-700 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="h-full bg-amber-400"
+                            style={{ width: `${(portfolioStats.distribution.poor / portfolioStats.total) * 100}%` }}
+                          />
+                        </div>
+                        <span className="w-8 text-slate-400 text-right">{portfolioStats.distribution.poor}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="w-24 text-slate-500">0-59</span>
+                        <div className="flex-1 bg-slate-700 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="h-full bg-red-500"
+                            style={{ width: `${(portfolioStats.distribution.critical / portfolioStats.total) * 100}%` }}
+                          />
+                        </div>
+                        <span className="w-8 text-slate-400 text-right">{portfolioStats.distribution.critical}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              )
-            })}
-          </div>
+
+                {/* Quick Actions */}
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6">
+                  <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
+                  <div className="space-y-3">
+                    <button
+                      onClick={() => {
+                        sortedProjects.forEach((p) => handleScanProject(p.id))
+                      }}
+                      className="w-full px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center gap-3"
+                    >
+                      <RefreshCw className="h-5 w-5 text-indigo-400" />
+                      Scan All Projects
+                    </button>
+                    <button
+                      onClick={() => {
+                        // TODO: Implement bulk PDF export
+                        addToast({ type: 'info', title: 'Coming soon!', message: 'Bulk PDF export is coming soon.' })
+                      }}
+                      className="w-full px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center gap-3"
+                    >
+                      <FileDown className="h-5 w-5 text-indigo-400" />
+                      Export All Reports (PDF)
+                    </button>
+                    <Link
+                      href="/settings"
+                      className="w-full px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center gap-3"
+                    >
+                      <Settings className="h-5 w-5 text-indigo-400" />
+                      Team Settings
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Upgrade Banner for Free Users */}
+            {userPlan?.plan === 'free' && (
+              <div className="mt-8 p-6 bg-gradient-to-r from-indigo-900/30 to-purple-900/30 rounded-xl border border-indigo-500/30">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
+                      <Zap className="h-5 w-5 text-amber-400" />
+                      Want to track more projects?
+                    </h3>
+                    <p className="text-slate-300 text-sm">
+                      Pro tier: 6 projects + unlimited scans + auto-scheduling
+                    </p>
+                  </div>
+                  <div className="flex gap-3">
+                    <Link
+                      href="/pricing"
+                      className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-semibold transition-colors flex items-center gap-2"
+                    >
+                      Upgrade to Pro - $19/mo
+                    </Link>
+                    <Link
+                      href="/pricing"
+                      className="px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg font-medium transition-colors"
+                    >
+                      Compare Plans
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </main>
 
-      {/* Add Project Modal */}
+      {/* Add Project Modal (Enhanced) */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-slate-800 rounded-xl p-6 max-w-md w-full border border-slate-700 shadow-2xl animate-scale-in">
+          <div className="bg-slate-800 rounded-xl p-6 max-w-lg w-full border border-slate-700 shadow-2xl animate-scale-in max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-2xl font-bold">Add New Project</h2>
@@ -647,7 +993,7 @@ export default function DashboardClient() {
               <button
                 onClick={() => {
                   setShowAddModal(false)
-                  setNewProject({ name: '', url: '' })
+                  setNewProject({ name: '', url: '', githubRepo: '', autoScan: false })
                 }}
                 className="text-slate-400 hover:text-white transition-colors"
               >
@@ -655,35 +1001,96 @@ export default function DashboardClient() {
               </button>
             </div>
             <form onSubmit={handleAddProject}>
+              {/* Project Name */}
               <div className="mb-4">
-                <label className="block text-sm font-medium mb-2">Project Name</label>
+                <label className="block text-sm font-medium mb-2">
+                  Project Name <span className="text-red-400">*</span>
+                </label>
                 <input
                   type="text"
                   value={newProject.name}
                   onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
                   className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
-                  placeholder="My Awesome Project"
+                  placeholder="My New SaaS Product"
                   required
                   autoFocus
                 />
               </div>
+
+              {/* Website URL */}
               <div className="mb-6">
-                <label className="block text-sm font-medium mb-2">Website URL</label>
+                <label className="block text-sm font-medium mb-2">
+                  Primary URL (domain or website) <span className="text-red-400">*</span>
+                </label>
                 <input
                   type="url"
                   value={newProject.url}
                   onChange={(e) => setNewProject({ ...newProject, url: e.target.value })}
                   className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
-                  placeholder="https://example.com"
+                  placeholder="https://mynewsaas.com"
                   required
                 />
+                <p className="text-xs text-slate-500 mt-1">
+                  💡 We&apos;ll automatically scan this URL for all 8 phases
+                </p>
               </div>
+
+              {/* Optional: GitHub (Pro feature) */}
+              {userPlan?.plan !== 'free' && (
+                <>
+                  <div className="border-t border-slate-700 pt-6 mb-6">
+                    <h3 className="text-sm font-medium text-slate-300 mb-4">
+                      Optional: Connect for Deeper Analysis
+                    </h3>
+                    
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium mb-2 text-slate-400">
+                        GitHub Repository
+                      </label>
+                      <input
+                        type="text"
+                        value={newProject.githubRepo}
+                        onChange={(e) => setNewProject({ ...newProject, githubRepo: e.target.value })}
+                        className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:border-indigo-500 transition-colors"
+                        placeholder="owner/repo"
+                      />
+                      <div className="mt-2 text-xs text-slate-500 space-y-1">
+                        <p>Unlocks:</p>
+                        <ul className="list-disc list-inside ml-2 space-y-0.5">
+                          <li>✅ Secret scanning (detect leaked API keys)</li>
+                          <li>✅ Debug statement detection (console.log)</li>
+                          <li>✅ ENV variable checks</li>
+                          <li>✅ Dependency vulnerability scanning</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Auto-Scan Settings */}
+                  <div className="border-t border-slate-700 pt-6 mb-6">
+                    <h3 className="text-sm font-medium text-slate-300 mb-4">
+                      Auto-Scan Settings (Pro Feature)
+                    </h3>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newProject.autoScan}
+                        onChange={(e) => setNewProject({ ...newProject, autoScan: e.target.checked })}
+                        className="w-5 h-5 rounded bg-slate-700 border-slate-600 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm">Enable daily auto-scans</span>
+                    </label>
+                  </div>
+                </>
+              )}
+
+              {/* Actions */}
               <div className="flex gap-3">
                 <button
                   type="button"
                   onClick={() => {
                     setShowAddModal(false)
-                    setNewProject({ name: '', url: '' })
+                    setNewProject({ name: '', url: '', githubRepo: '', autoScan: false })
                   }}
                   className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg font-medium transition-colors"
                 >
@@ -702,7 +1109,7 @@ export default function DashboardClient() {
                   ) : (
                     <>
                       <Plus className="h-4 w-4" />
-                      Add & Scan
+                      Add Project & Scan Now
                     </>
                   )}
                 </button>

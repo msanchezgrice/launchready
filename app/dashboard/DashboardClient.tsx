@@ -29,6 +29,8 @@ import {
   Calendar,
   FileDown,
   Bell,
+  Github,
+  ChevronDown,
 } from 'lucide-react'
 import UpgradeModal from '@/components/ui/UpgradeModal'
 import { ProjectCardSkeleton } from '@/components/ui/Skeleton'
@@ -64,6 +66,22 @@ interface Toast {
   message?: string
 }
 
+interface UserIntegrations {
+  githubConnected: boolean
+  githubUsername: string | null
+  vercelConnected: boolean
+  vercelUsername: string | null
+}
+
+interface GitHubRepo {
+  fullName: string
+  name: string
+  description: string | null
+  url: string
+  private: boolean
+  language: string | null
+}
+
 type SortOption = 'latest' | 'score' | 'name'
 type ViewMode = 'grid' | 'list'
 
@@ -88,6 +106,9 @@ export default function DashboardClient() {
   const [toasts, setToasts] = useState<Toast[]>([])
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
   const [sortBy, setSortBy] = useState<SortOption>('latest')
+  const [integrations, setIntegrations] = useState<UserIntegrations | null>(null)
+  const [userRepos, setUserRepos] = useState<GitHubRepo[]>([])
+  const [loadingRepos, setLoadingRepos] = useState(false)
   const searchParams = useSearchParams()
 
   // Toast helpers
@@ -102,6 +123,36 @@ export default function DashboardClient() {
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
+
+  // Fetch user integrations status
+  const fetchIntegrations = useCallback(async () => {
+    try {
+      const res = await fetch('/api/user/settings')
+      if (res.ok) {
+        const data = await res.json()
+        setIntegrations(data)
+      }
+    } catch (err) {
+      console.error('Failed to fetch integrations:', err)
+    }
+  }, [])
+
+  // Fetch user's GitHub repos
+  const fetchUserRepos = useCallback(async () => {
+    if (loadingRepos || userRepos.length > 0) return
+    setLoadingRepos(true)
+    try {
+      const res = await fetch('/api/user/repos')
+      if (res.ok) {
+        const data = await res.json()
+        setUserRepos(data.repos || [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch repos:', err)
+    } finally {
+      setLoadingRepos(false)
+    }
+  }, [loadingRepos, userRepos.length])
 
   // Check for checkout success
   useEffect(() => {
@@ -190,6 +241,10 @@ export default function DashboardClient() {
       setShowUpgradeModal(true)
     } else {
       setShowAddModal(true)
+      fetchIntegrations() // Fetch integrations when modal opens
+      if (userPlan?.plan !== 'free') {
+        fetchUserRepos() // Pre-fetch repos for Pro users
+      }
     }
   }
 
@@ -1039,22 +1094,71 @@ export default function DashboardClient() {
               {userPlan?.plan !== 'free' && (
                 <>
                   <div className="border-t border-slate-700 pt-6 mb-6">
-                    <h3 className="text-sm font-medium text-slate-300 mb-4">
-                      Optional: Connect for Deeper Analysis
+                    <h3 className="text-sm font-medium text-slate-300 mb-4 flex items-center gap-2">
+                      <Github className="h-4 w-4" />
+                      Optional: Connect GitHub for Deeper Analysis
                     </h3>
                     
                     <div className="mb-4">
                       <label className="block text-sm font-medium mb-2 text-slate-400">
                         GitHub Repository
                       </label>
-                      <input
-                        type="text"
-                        value={newProject.githubRepo}
-                        onChange={(e) => setNewProject({ ...newProject, githubRepo: e.target.value })}
-                        className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:border-indigo-500 transition-colors"
-                        placeholder="owner/repo"
-                      />
-                      <div className="mt-2 text-xs text-slate-500 space-y-1">
+                      
+                      {/* Show dropdown if GitHub is connected */}
+                      {integrations?.githubConnected ? (
+                        <div className="space-y-3">
+                          <div className="relative">
+                            <select
+                              value={newProject.githubRepo}
+                              onChange={(e) => setNewProject({ ...newProject, githubRepo: e.target.value })}
+                              onFocus={fetchUserRepos}
+                              className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:border-indigo-500 transition-colors appearance-none cursor-pointer"
+                            >
+                              <option value="">-- Select a repository --</option>
+                              {loadingRepos && <option disabled>Loading repos...</option>}
+                              {userRepos.map((repo) => (
+                                <option key={repo.fullName} value={repo.fullName}>
+                                  {repo.fullName} {repo.private ? '(private)' : ''} {repo.language ? `• ${repo.language}` : ''}
+                                </option>
+                              ))}
+                            </select>
+                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            Connected as @{integrations.githubUsername}
+                          </p>
+                          <div className="text-xs text-slate-500">
+                            <input
+                              type="text"
+                              value={newProject.githubRepo}
+                              onChange={(e) => setNewProject({ ...newProject, githubRepo: e.target.value })}
+                              className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg focus:outline-none focus:border-indigo-500 transition-colors text-sm"
+                              placeholder="Or enter manually: owner/repo"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <input
+                            type="text"
+                            value={newProject.githubRepo}
+                            onChange={(e) => setNewProject({ ...newProject, githubRepo: e.target.value })}
+                            className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:border-indigo-500 transition-colors"
+                            placeholder="owner/repo"
+                          />
+                          <div className="flex items-center gap-2 p-3 bg-slate-700/50 rounded-lg border border-slate-600/50">
+                            <Github className="h-4 w-4 text-slate-400" />
+                            <span className="text-xs text-slate-400">
+                              <a href="/settings" className="text-indigo-400 hover:text-indigo-300 underline">
+                                Connect GitHub
+                              </a>
+                              {' '}to browse your repositories
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div className="mt-3 text-xs text-slate-500 space-y-1">
                         <p>Unlocks:</p>
                         <ul className="list-disc list-inside ml-2 space-y-0.5">
                           <li>✅ Secret scanning (detect leaked API keys)</li>

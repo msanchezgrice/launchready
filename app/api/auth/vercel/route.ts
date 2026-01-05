@@ -31,14 +31,13 @@ export async function GET(request: Request) {
   
   console.log('[Vercel OAuth] Initiating flow', { clientId, redirectUri, userId })
   
-  // Note: Vercel OAuth uses their integrations flow
-  // If you have a verified integration, use: https://vercel.com/integrations/YOUR_INTEGRATION/new
-  // Otherwise, use the standard OAuth flow
+  // Note: Vercel Integrations define scopes in the Integration Console
+  // Don't pass scope parameter - it uses the scopes configured in your integration settings
   const authUrl = new URL('https://vercel.com/oauth/authorize')
   authUrl.searchParams.set('client_id', clientId)
   authUrl.searchParams.set('redirect_uri', redirectUri)
   authUrl.searchParams.set('state', state)
-  authUrl.searchParams.set('scope', 'user')
+  // Scopes are defined in Integration Console, not in URL
 
   return NextResponse.redirect(authUrl.toString())
 }

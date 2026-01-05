@@ -166,7 +166,17 @@ export default function ScanProgressPage() {
   }
 
   const completedPhases = phases.filter((p) => p.status === 'complete').length
-  const hostname = project?.url ? new URL(project.url).hostname : 'your site'
+  
+  // Safely extract hostname
+  let hostname = 'your site'
+  if (project?.url) {
+    try {
+      const urlWithProtocol = project.url.startsWith('http') ? project.url : `https://${project.url}`
+      hostname = new URL(urlWithProtocol).hostname
+    } catch {
+      hostname = project.url
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 text-white">

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useState, useEffect, use } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft,
@@ -58,9 +58,9 @@ function getRandomSummary(phaseName: string): string {
   return options[Math.floor(Math.random() * options.length)]
 }
 
-export default function ScanProgressPage() {
-  const params = useParams()
-  const projectId = (params?.projectId as string) || ''
+export default function ScanProgressPage({ params }: { params: Promise<{ projectId: string }> }) {
+  const resolvedParams = use(params)
+  const projectId = resolvedParams.projectId
   const router = useRouter()
   
   const [mounted, setMounted] = useState(false)

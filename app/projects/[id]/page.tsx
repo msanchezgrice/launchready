@@ -556,6 +556,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                         onClick={() => {
                           setGithubRepoUrl(project.githubRepo || '')
                           setShowGithubModal(true)
+                          fetchUserRepos() // Fetch repos when modal opens
                         }}
                         className="text-sm text-indigo-400 hover:text-indigo-300 ml-2"
                       >
@@ -895,7 +896,6 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   <select
                     value={githubRepoUrl}
                     onChange={(e) => setGithubRepoUrl(e.target.value)}
-                    onFocus={fetchUserRepos}
                     className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:border-indigo-500"
                   >
                     <option value="">-- Select a repository --</option>

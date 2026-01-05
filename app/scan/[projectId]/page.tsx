@@ -45,7 +45,7 @@ const SCAN_PHASES: Omit<ScanPhase, 'status' | 'score' | 'duration' | 'summary'>[
 
 export default function ScanProgressPage() {
   const params = useParams()
-  const projectId = params.projectId as string
+  const projectId = params?.projectId as string
   const router = useRouter()
   const [project, setProject] = useState<{ name: string; url: string } | null>(null)
   const [phases, setPhases] = useState<ScanPhase[]>(
@@ -57,6 +57,12 @@ export default function ScanProgressPage() {
   const [elapsedTime, setElapsedTime] = useState(0)
   const [scanComplete, setScanComplete] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isClient, setIsClient] = useState(false)
+
+  // Ensure client-side rendering
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
 
   // Fetch project info
   useEffect(() => {
@@ -200,7 +206,12 @@ export default function ScanProgressPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-12">
-        {error ? (
+        {!isClient ? (
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-400" />
+            <p className="mt-4 text-slate-400">Loading...</p>
+          </div>
+        ) : error ? (
           <div className="text-center">
             <div className="inline-flex items-center justify-center w-20 h-20 bg-red-900/30 rounded-full mb-6">
               <AlertCircle className="h-10 w-10 text-red-400" />

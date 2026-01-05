@@ -20,6 +20,8 @@ import {
   Shield,
   Bug,
   Package,
+  FileDown,
+  Loader2,
 } from 'lucide-react'
 
 interface Finding {
@@ -103,6 +105,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [githubRepoUrl, setGithubRepoUrl] = useState('')
   const [savingRepo, setSavingRepo] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
+  const [exportingPdf, setExportingPdf] = useState(false)
 
   // Check for success messages
   useEffect(() => {
@@ -216,6 +219,34 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       setError(err instanceof Error ? err.message : 'Failed to save repo')
     } finally {
       setSavingRepo(false)
+    }
+  }
+
+  async function handleExportPdf() {
+    setExportingPdf(true)
+    try {
+      const res = await fetch(`/api/projects/${resolvedParams.id}/export-pdf`)
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to export PDF')
+      }
+      
+      // Download the PDF
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `launchready-${project?.name?.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${new Date().toISOString().split('T')[0]}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      
+      setSuccessMessage('PDF exported successfully!')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to export PDF')
+    } finally {
+      setExportingPdf(false)
     }
   }
 
@@ -433,6 +464,26 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   )}
                 </button>
               )}
+
+              {/* PDF Export Button */}
+              <button
+                onClick={handleExportPdf}
+                disabled={exportingPdf || !latestScan}
+                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg font-medium transition-colors flex items-center gap-2"
+                title="Download PDF Report"
+              >
+                {exportingPdf ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <FileDown className="h-4 w-4" />
+                    Export PDF
+                  </>
+                )}
+              </button>
             </div>
 
             {/* GitHub & Vercel Integration Cards */}

@@ -43,29 +43,44 @@ const SCAN_PHASES: Omit<ScanPhase, 'status' | 'score' | 'duration' | 'summary'>[
   { id: 8, name: 'Monitoring', description: 'Error tracking, uptime alerts', icon: Bell, maxScore: 10 },
 ]
 
+function getRandomSummary(phaseName: string): string {
+  const summaries: Record<string, string[]> = {
+    'Domain & DNS': ['DNS resolves, SSL valid, HTTPS enforced', 'All DNS checks passed', 'Certificate valid for 90 days'],
+    'SEO Fundamentals': ['Title, meta, OG tags all present', 'Sitemap found with 45 URLs', 'All meta tags optimized'],
+    'Performance': ['PageSpeed 94/100, LCP 1.2s, excellent!', 'Core Web Vitals passed', 'Page size optimized'],
+    'Security': ['SSL grade A, CSP present, missing HSTS', 'Good security headers', 'No vulnerabilities found'],
+    'Analytics': ['PostHog detected and configured', 'Google Analytics found', 'Event tracking active'],
+    'Social Media': ['Twitter linked, moderate activity', 'LinkedIn present', 'Social profiles verified'],
+    'Content Quality': ['Clear value prop, strong CTAs', 'Good messaging clarity', 'Content well structured'],
+    'Monitoring': ['Verifying error tracking and uptime monitors...', 'Sentry detected', 'Monitoring configured'],
+  }
+  const options = summaries[phaseName] || ['Check complete']
+  return options[Math.floor(Math.random() * options.length)]
+}
+
 export default function ScanProgressPage() {
   const params = useParams()
-  const projectId = params?.projectId as string
+  const projectId = (params?.projectId as string) || ''
   const router = useRouter()
+  
+  const [mounted, setMounted] = useState(false)
   const [project, setProject] = useState<{ name: string; url: string } | null>(null)
-  const [phases, setPhases] = useState<ScanPhase[]>(
-    SCAN_PHASES.map((p) => ({ ...p, status: 'pending' as const }))
-  )
-  const [currentPhase, setCurrentPhase] = useState(0)
+  const [phases, setPhases] = useState<ScanPhase[]>([])
   const [totalProgress, setTotalProgress] = useState(0)
-  const [startTime] = useState(Date.now())
   const [elapsedTime, setElapsedTime] = useState(0)
   const [scanComplete, setScanComplete] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [isClient, setIsClient] = useState(false)
 
-  // Ensure client-side rendering
+  // Initialize phases and mount state
   useEffect(() => {
-    setIsClient(true)
+    setMounted(true)
+    setPhases(SCAN_PHASES.map((p) => ({ ...p, status: 'pending' as const })))
   }, [])
 
   // Fetch project info
   useEffect(() => {
+    if (!mounted || !projectId) return
+    
     async function fetchProject() {
       try {
         const res = await fetch(`/api/projects/${projectId}`)
@@ -78,18 +93,23 @@ export default function ScanProgressPage() {
       }
     }
     fetchProject()
-  }, [projectId])
+  }, [mounted, projectId])
 
   // Timer
   useEffect(() => {
+    if (!mounted) return
+    
+    const startTime = Date.now()
     const timer = setInterval(() => {
       setElapsedTime(Math.floor((Date.now() - startTime) / 1000))
     }, 1000)
     return () => clearInterval(timer)
-  }, [startTime])
+  }, [mounted])
 
-  // Start the scan
+  // Run scan
   useEffect(() => {
+    if (!mounted || !projectId) return
+    
     let cancelled = false
 
     async function runScan() {
@@ -113,7 +133,6 @@ export default function ScanProgressPage() {
           setPhases((prev) => prev.map((p, idx) => 
             idx === i ? { ...p, status: 'scanning' as const } : p
           ))
-          setCurrentPhase(i + 1)
           setTotalProgress(Math.round(((i + 0.5) / SCAN_PHASES.length) * 100))
 
           // Wait for phase completion (simulated timing)
@@ -154,34 +173,48 @@ export default function ScanProgressPage() {
     return () => {
       cancelled = true
     }
-  }, [projectId, router])
+  }, [mounted, projectId, router])
 
-  function getRandomSummary(phaseName: string): string {
-    const summaries: Record<string, string[]> = {
-      'Domain & DNS': ['DNS resolves, SSL valid, HTTPS enforced', 'All DNS checks passed', 'Certificate valid for 90 days'],
-      'SEO Fundamentals': ['Title, meta, OG tags all present', 'Sitemap found with 45 URLs', 'All meta tags optimized'],
-      'Performance': ['PageSpeed 94/100, LCP 1.2s, excellent!', 'Core Web Vitals passed', 'Page size optimized'],
-      'Security': ['SSL grade A, CSP present, missing HSTS', 'Good security headers', 'No vulnerabilities found'],
-      'Analytics': ['PostHog detected and configured', 'Google Analytics found', 'Event tracking active'],
-      'Social Media': ['Twitter linked, moderate activity', 'LinkedIn present', 'Social profiles verified'],
-      'Content Quality': ['Clear value prop, strong CTAs', 'Good messaging clarity', 'Content well structured'],
-      'Monitoring': ['Verifying error tracking and uptime monitors...', 'Sentry detected', 'Monitoring configured'],
+  // Safely extract hostname
+  const getHostname = () => {
+    if (!project?.url) return 'your site'
+    try {
+      const urlWithProtocol = project.url.startsWith('http') ? project.url : `https://${project.url}`
+      return new URL(urlWithProtocol).hostname
+    } catch {
+      return project.url
     }
-    const options = summaries[phaseName] || ['Check complete']
-    return options[Math.floor(Math.random() * options.length)]
   }
 
   const completedPhases = phases.filter((p) => p.status === 'complete').length
-  
-  // Safely extract hostname
-  let hostname = 'your site'
-  if (project?.url) {
-    try {
-      const urlWithProtocol = project.url.startsWith('http') ? project.url : `https://${project.url}`
-      hostname = new URL(urlWithProtocol).hostname
-    } catch {
-      hostname = project.url
-    }
+  const hostname = getHostname()
+
+  // Show loading until mounted
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 text-white">
+        <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
+            <div className="flex items-center justify-between">
+              <Link href="/dashboard" className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Link>
+              <Link href="/" className="flex items-center gap-2">
+                <Rocket className="h-6 w-6 text-indigo-500" />
+                <span className="font-semibold">LaunchReady.me</span>
+              </Link>
+            </div>
+          </div>
+        </header>
+        <main className="max-w-4xl mx-auto px-4 sm:px-6 py-12">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-400" />
+            <p className="mt-4 text-slate-400">Initializing scan...</p>
+          </div>
+        </main>
+      </div>
+    )
   }
 
   return (
@@ -191,7 +224,7 @@ export default function ScanProgressPage() {
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between">
             <Link
-              href={`/projects/${projectId}`}
+              href={projectId ? `/projects/${projectId}` : '/dashboard'}
               className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -206,12 +239,7 @@ export default function ScanProgressPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-12">
-        {!isClient ? (
-          <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-400" />
-            <p className="mt-4 text-slate-400">Loading...</p>
-          </div>
-        ) : error ? (
+        {error ? (
           <div className="text-center">
             <div className="inline-flex items-center justify-center w-20 h-20 bg-red-900/30 rounded-full mb-6">
               <AlertCircle className="h-10 w-10 text-red-400" />
@@ -248,7 +276,7 @@ export default function ScanProgressPage() {
             <div className="mb-10">
               <div className="flex items-center justify-between text-sm mb-2">
                 <span className="text-slate-400">
-                  {completedPhases}/{SCAN_PHASES.length} complete
+                  {completedPhases}/{phases.length || 8} complete
                 </span>
                 <span className="text-indigo-400 font-medium">{totalProgress}%</span>
               </div>
@@ -315,7 +343,7 @@ export default function ScanProgressPage() {
                             </span>
                           )}
                           {isComplete && phase.duration !== undefined && (
-                            <span className="text-xs text-slate-500">
+                            <span className="text-xs text-slate-500 ml-2">
                               ({phase.duration}s)
                             </span>
                           )}

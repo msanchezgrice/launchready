@@ -8,7 +8,6 @@ import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { ScanReportPDF } from '@/lib/pdf-template'
-import React from 'react'
 
 type Params = Promise<{ id: string }>
 
@@ -61,24 +60,24 @@ export async function GET(
 
     const latestScan = project.scans[0]
 
-    // Transform phases data
+    // Transform phases data - handle JSON values properly
     const phases = latestScan.phases.map((phase) => ({
       phaseName: phase.phaseName,
       score: phase.score,
       maxScore: phase.maxScore,
-      findings: phase.findings,
-      recommendations: phase.recommendations,
+      findings: phase.findings as unknown as string | Array<{ type: string; message: string; details?: string }>,
+      recommendations: phase.recommendations as unknown as string | Array<{ title: string; description?: string; priority?: string; actionable?: string }> | null,
     }))
 
-    // Generate PDF
+    // Generate PDF (phases cast due to Prisma JSON types)
     const pdfBuffer = await renderToBuffer(
-      React.createElement(ScanReportPDF, {
-        projectName: project.name,
-        projectUrl: project.url,
-        score: latestScan.score,
-        scannedAt: latestScan.scannedAt.toISOString(),
-        phases,
-      })
+      <ScanReportPDF
+        projectName={project.name}
+        projectUrl={project.url}
+        score={latestScan.score}
+        scannedAt={latestScan.scannedAt.toISOString()}
+        phases={phases as Parameters<typeof ScanReportPDF>[0]['phases']}
+      />
     )
 
     // Generate filename
@@ -86,8 +85,8 @@ export async function GET(
     const sanitizedName = project.name.toLowerCase().replace(/[^a-z0-9]/g, '-')
     const filename = `launchready-${sanitizedName}-${date}.pdf`
 
-    // Return PDF
-    return new NextResponse(pdfBuffer, {
+    // Return PDF (convert Buffer to Uint8Array for NextResponse)
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',

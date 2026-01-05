@@ -263,8 +263,8 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Vercel Integration */}
-            <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-5">
+            {/* Vercel Integration - Coming Soon */}
+            <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-5 opacity-60">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-slate-800 rounded-lg">
@@ -277,61 +277,16 @@ export default function SettingsPage() {
                     </p>
                   </div>
                 </div>
-                {settings?.vercelConnected ? (
-                  <span className="px-2 py-1 bg-emerald-900/30 text-emerald-400 rounded-full text-xs flex items-center gap-1">
-                    <Check className="h-3 w-3" />
-                    Connected
-                  </span>
-                ) : (
-                  <span className="px-2 py-1 bg-slate-700 text-slate-400 rounded-full text-xs">
-                    Not connected
-                  </span>
-                )}
+                <span className="px-2 py-1 bg-amber-900/30 text-amber-400 rounded-full text-xs">
+                  Coming Soon
+                </span>
               </div>
 
-              {settings?.vercelConnected ? (
-                <div className="mt-4 pt-4 border-t border-slate-700 flex items-center justify-between">
-                  <div className="text-sm">
-                    <span className="text-slate-500">Account:</span>{' '}
-                    <span className="text-white">{settings.vercelUsername}</span>
-                    {settings.vercelConnectedAt && (
-                      <span className="text-slate-500 ml-3">
-                        Connected {new Date(settings.vercelConnectedAt).toLocaleDateString()}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={connectVercel}
-                      className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
-                    >
-                      Reconnect
-                    </button>
-                    <button
-                      onClick={() => disconnectService('vercel')}
-                      disabled={disconnecting === 'vercel'}
-                      className="px-3 py-1.5 text-sm bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded-lg transition-colors flex items-center gap-1"
-                    >
-                      {disconnecting === 'vercel' ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <X className="h-3 w-3" />
-                      )}
-                      Disconnect
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-4 pt-4 border-t border-slate-700">
-                  <button
-                    onClick={connectVercel}
-                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-                  >
-                    <Triangle className="h-4 w-4" />
-                    Connect Vercel
-                  </button>
-                </div>
-              )}
+              <div className="mt-4 pt-4 border-t border-slate-700">
+                <p className="text-sm text-slate-500">
+                  Vercel integration is being finalized. GitHub scanning covers the most critical launch checks!
+                </p>
+              </div>
             </div>
           </div>
         </section>

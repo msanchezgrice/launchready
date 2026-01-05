@@ -593,8 +593,8 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                 )}
               </div>
 
-              {/* Vercel Integration */}
-              <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+              {/* Vercel Integration - Coming Soon */}
+              <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 opacity-60">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-slate-700 rounded-lg">
@@ -605,57 +605,16 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                       <p className="text-sm text-slate-400">Deployment analysis</p>
                     </div>
                   </div>
-                  {integrations?.vercelConnected ? (
-                    <span className="px-2 py-1 bg-emerald-900/30 text-emerald-400 rounded-full text-xs flex items-center gap-1">
-                      <Check className="h-3 w-3" />
-                      Connected
-                    </span>
-                  ) : (
-                    <span className="px-2 py-1 bg-slate-700 text-slate-400 rounded-full text-xs">
-                      Not Connected
-                    </span>
-                  )}
+                  <span className="px-2 py-1 bg-amber-900/30 text-amber-400 rounded-full text-xs">
+                    Coming Soon
+                  </span>
                 </div>
 
-                {integrations?.vercelConnected ? (
-                  <div className="space-y-3">
-                    <p className="text-sm text-slate-300">
-                      <span className="text-slate-500">Account:</span> {integrations.vercelUsername}
-                    </p>
-                    {project.vercelProject && (
-                      <p className="text-sm text-slate-300">
-                        <span className="text-slate-500">Project:</span> {project.vercelProject}
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-sm text-slate-400">
-                      Unlock deployment insights:
-                    </p>
-                    <ul className="text-sm text-slate-400 space-y-1">
-                      <li className="flex items-center gap-2">
-                        <Check className="h-4 w-4 text-emerald-400" />
-                        Environment variables
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Check className="h-4 w-4 text-emerald-400" />
-                        Domain configuration
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Check className="h-4 w-4 text-emerald-400" />
-                        Build & deploy status
-                      </li>
-                    </ul>
-                    <Link
-                      href="/settings"
-                      className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
-                    >
-                      <Settings className="h-4 w-4" />
-                      Connect in Settings
-                    </Link>
-                  </div>
-                )}
+                <div className="space-y-3">
+                  <p className="text-sm text-slate-500">
+                    Vercel integration coming soon. GitHub scanning covers most critical launch checks!
+                  </p>
+                </div>
               </div>
             </div>
 

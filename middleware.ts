@@ -9,6 +9,7 @@ const isProtectedRoute = createRouteMatcher([
   '/api/projects(.*)',
   '/api/checkout(.*)',
   '/api/customer-portal(.*)',
+  '/api/settings(.*)',
 ]);
 
 // Define public routes that should bypass Clerk
@@ -18,6 +19,7 @@ const isPublicRoute = createRouteMatcher([
   '/sign-up(.*)',
   '/api/scan',
   '/api/webhooks(.*)',
+  '/api/cron(.*)',
   '/pricing',
   '/results(.*)',
 ]);

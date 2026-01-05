@@ -90,6 +90,15 @@ interface GitHubScanResult {
   }>
 }
 
+interface GitHubRepo {
+  fullName: string
+  name: string
+  description: string | null
+  url: string
+  private: boolean
+  language: string | null
+}
+
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params)
   const searchParams = useSearchParams()
@@ -104,6 +113,8 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [showGithubModal, setShowGithubModal] = useState(false)
   const [githubRepoUrl, setGithubRepoUrl] = useState('')
   const [savingRepo, setSavingRepo] = useState(false)
+  const [userRepos, setUserRepos] = useState<GitHubRepo[]>([])
+  const [loadingRepos, setLoadingRepos] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
   const [exportingPdf, setExportingPdf] = useState(false)
 
@@ -160,6 +171,22 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       }
     } catch (err) {
       console.error('Failed to fetch integrations:', err)
+    }
+  }
+
+  async function fetchUserRepos() {
+    if (loadingRepos || userRepos.length > 0) return
+    setLoadingRepos(true)
+    try {
+      const res = await fetch('/api/user/repos')
+      if (res.ok) {
+        const data = await res.json()
+        setUserRepos(data.repos || [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch repos:', err)
+    } finally {
+      setLoadingRepos(false)
     }
   }
 
@@ -517,18 +544,24 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     <p className="text-sm text-slate-300">
                       <span className="text-slate-500">Account:</span> @{integrations.githubUsername}
                     </p>
-                    {project.githubRepo ? (
-                      <p className="text-sm text-slate-300 truncate">
-                        <span className="text-slate-500">Repo:</span> {project.githubRepo}
-                      </p>
-                    ) : (
+                    <div className="flex items-center justify-between">
+                      {project.githubRepo ? (
+                        <p className="text-sm text-slate-300 truncate">
+                          <span className="text-slate-500">Repo:</span> {project.githubRepo}
+                        </p>
+                      ) : (
+                        <span className="text-sm text-slate-400">No repo set</span>
+                      )}
                       <button
-                        onClick={() => setShowGithubModal(true)}
-                        className="text-sm text-indigo-400 hover:text-indigo-300"
+                        onClick={() => {
+                          setGithubRepoUrl(project.githubRepo || '')
+                          setShowGithubModal(true)
+                        }}
+                        className="text-sm text-indigo-400 hover:text-indigo-300 ml-2"
                       >
-                        + Set repository for this project
+                        {project.githubRepo ? 'Change' : '+ Set repo'}
                       </button>
-                    )}
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -885,7 +918,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold flex items-center gap-2">
                 <Github className="h-6 w-6" />
-                Set GitHub Repository
+                {project?.githubRepo ? 'Change' : 'Set'} GitHub Repository
               </h2>
               <button
                 onClick={() => setShowGithubModal(false)}
@@ -896,17 +929,48 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             </div>
 
             <div className="space-y-4">
+              {/* Dropdown for user repos */}
+              {integrations?.githubConnected && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">Select from your repos</label>
+                  <select
+                    value={githubRepoUrl}
+                    onChange={(e) => setGithubRepoUrl(e.target.value)}
+                    onFocus={fetchUserRepos}
+                    className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">-- Select a repository --</option>
+                    {loadingRepos && <option disabled>Loading repos...</option>}
+                    {userRepos.map((repo) => (
+                      <option key={repo.fullName} value={repo.fullName}>
+                        {repo.fullName} {repo.private ? '(private)' : ''} {repo.language ? `• ${repo.language}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Manual input */}
               <div>
-                <label className="block text-sm font-medium mb-2">Repository (owner/repo)</label>
+                <label className="block text-sm font-medium mb-2">
+                  {integrations?.githubConnected ? 'Or enter manually' : 'Repository (owner/repo)'}
+                </label>
                 <input
                   type="text"
-                  value={githubRepoUrl || project?.githubRepo || ''}
+                  value={githubRepoUrl}
                   onChange={(e) => setGithubRepoUrl(e.target.value)}
                   className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:border-indigo-500"
-                  placeholder="username/repository"
+                  placeholder="owner/repository"
                 />
-                <p className="text-xs text-slate-500 mt-1">Enter in format: owner/repo (e.g., msanchezgrice/launchready)</p>
+                <p className="text-xs text-slate-500 mt-1">Format: owner/repo (e.g., msanchezgrice/launchready)</p>
               </div>
+
+              {project?.githubRepo && (
+                <div className="p-3 bg-slate-700/50 rounded-lg text-sm">
+                  <span className="text-slate-400">Current:</span>{' '}
+                  <span className="text-white">{project.githubRepo}</span>
+                </div>
+              )}
 
               <div className="flex gap-3">
                 <button

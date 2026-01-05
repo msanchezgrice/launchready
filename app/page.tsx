@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, UserButton } from '@clerk/nextjs';
 import type { ScanResult } from '@/lib/scanner';
@@ -95,32 +95,44 @@ const pricingPlans = [
     features: ["Unlimited projects", "API access", "SLA support", "Custom checks"],
     cta: "Contact Sales",
     popular: false,
+    href: "mailto:sales@launchready.me?subject=Enterprise%20Plan%20Inquiry",
   },
 ];
 
-const testimonials = [
-  {
-    quote: "LaunchReady caught 12 issues before launch - saved us from embarrassment!",
-    author: "Sarah Chen",
-    role: "Founder @ StartupXYZ",
-  },
-  {
-    quote: "We use it for all our client projects. The dashboard is a game-changer.",
-    author: "Mike Rodriguez",
-    role: "Agency Owner",
-  },
-];
+// TODO: Add real testimonials from actual users
+// const testimonials = [
+//   { quote: "...", author: "Real User", role: "Real Company" },
+// ];
 
 export default function Home() {
   const [url, setUrl] = useState('');
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState('');
+  const [stats, setStats] = useState<{ scans: number; projects: number } | null>(null);
   const router = useRouter();
   const { isSignedIn, user, isLoaded } = useUser();
 
-  const handleScan = async (e: React.FormEvent) => {
+  // Fetch real stats on mount
+  useEffect(() => {
+    fetch('/api/stats')
+      .then(res => res.json())
+      .then(data => setStats(data))
+      .catch(() => setStats(null));
+  }, []);
+
+  const handleScan = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    
+    // Get URL from form data as fallback (helps with browser automation)
+    const formData = new FormData(e.currentTarget);
+    const urlValue = (formData.get('url') as string) || url;
+    
+    if (!urlValue?.trim()) {
+      setError('URL is required');
+      return;
+    }
+    
     setScanning(true);
     setError('');
     setResult(null);
@@ -131,7 +143,7 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url: urlValue }),
       });
 
       if (!response.ok) {
@@ -221,7 +233,7 @@ export default function Home() {
             </p>
 
             {/* URL Input */}
-            <form onSubmit={handleScan} className="max-w-xl mx-auto mb-6">
+            <form onSubmit={handleScan} className="max-w-xl mx-auto mb-6" data-testid="scan-form">
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="flex-1 relative">
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
@@ -229,35 +241,38 @@ export default function Home() {
                   </div>
                   <input
                     type="text"
+                    name="url"
                     placeholder="yourproject.com"
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
                     className="w-full pl-20 pr-4 py-4 bg-slate-800 border border-slate-600 text-white placeholder:text-slate-500 text-lg rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                    required
                     disabled={scanning}
-                    pattern=".*\..+"
-                    title="Enter a domain like example.com"
+                    data-testid="url-input"
+                    aria-label="Project URL"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={scanning}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 text-lg rounded-xl whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  data-testid="scan-button"
                 >
                   {scanning ? 'Scanning...' : 'Scan Your Project - Free'}
                   {!scanning && <ArrowRight className="w-5 h-5" />}
                 </button>
               </div>
               {error && (
-                <p className="text-red-400 mt-4">{error}</p>
+                <p className="text-red-400 mt-4" data-testid="error-message">{error}</p>
               )}
             </form>
 
             {/* Social proof */}
-            <p className="text-slate-500 flex items-center justify-center gap-2">
-              <span className="text-amber-400">✨</span>
-              12,345 projects scanned • Avg improvement: +32 points
-            </p>
+            {stats && stats.scans > 0 && (
+              <p className="text-slate-500 flex items-center justify-center gap-2">
+                <span className="text-amber-400">✨</span>
+                {stats.scans.toLocaleString()} scans completed across {stats.projects.toLocaleString()} projects
+              </p>
+            )}
           </div>
         </div>
       </section>
@@ -440,42 +455,7 @@ export default function Home() {
             <div className="border-t border-slate-700/50" />
           </div>
 
-          {/* Testimonials Section */}
-          <section className="py-16">
-            <div className="container mx-auto px-4">
-              <h2 className="text-2xl md:text-3xl font-bold text-center mb-12 text-white">
-                Trusted By:
-              </h2>
-              <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-                {testimonials.map((testimonial, i) => (
-                  <div
-                    key={i}
-                    className="bg-slate-800/50 border border-slate-700 rounded-xl p-6"
-                  >
-                    <p className="text-slate-200 italic mb-4">
-                      &quot;{testimonial.quote}&quot;
-                    </p>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-white font-medium">- {testimonial.author}</p>
-                        <p className="text-slate-400 text-sm">{testimonial.role}</p>
-                      </div>
-                      <div className="flex gap-0.5">
-                        {[...Array(5)].map((_, j) => (
-                          <Star key={j} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* Divider */}
-          <div className="container mx-auto px-4">
-            <div className="border-t border-slate-700/50" />
-          </div>
+          {/* TODO: Add Testimonials Section once we have real user testimonials */}
 
           {/* Pricing Section */}
           <section className="py-16">
@@ -512,15 +492,28 @@ export default function Home() {
                           </li>
                         ))}
                       </ul>
-                      <button
-                        className={`w-full py-3 rounded-lg font-medium transition-colors ${
-                          plan.popular
-                            ? "bg-indigo-600 hover:bg-indigo-700 text-white"
-                            : "bg-slate-700 hover:bg-slate-600 text-white"
-                        }`}
-                      >
-                        {plan.cta}
-                      </button>
+                      {'href' in plan ? (
+                        <a
+                          href={plan.href as string}
+                          className={`w-full py-3 rounded-lg font-medium transition-colors block text-center ${
+                            plan.popular
+                              ? "bg-indigo-600 hover:bg-indigo-700 text-white"
+                              : "bg-slate-700 hover:bg-slate-600 text-white"
+                          }`}
+                        >
+                          {plan.cta}
+                        </a>
+                      ) : (
+                        <button
+                          className={`w-full py-3 rounded-lg font-medium transition-colors ${
+                            plan.popular
+                              ? "bg-indigo-600 hover:bg-indigo-700 text-white"
+                              : "bg-slate-700 hover:bg-slate-600 text-white"
+                          }`}
+                        >
+                          {plan.cta}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -539,13 +532,12 @@ export default function Home() {
               <span className="font-semibold text-white">LaunchReady.me</span>
             </div>
             <nav className="flex items-center gap-6 text-sm text-slate-400">
-              <a href="#" className="hover:text-white transition-colors">Docs</a>
-              <a href="#" className="hover:text-white transition-colors">Pricing</a>
-              <a href="#" className="hover:text-white transition-colors">Blog</a>
-              <a href="#" className="hover:text-white transition-colors">Support</a>
+              <a href="https://github.com/msanchezgrice/launchready#readme" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Docs</a>
+              <a href="/pricing" className="hover:text-white transition-colors">Pricing</a>
+              <a href="mailto:support@launchready.me" className="hover:text-white transition-colors">Support</a>
             </nav>
             <div className="flex items-center gap-4">
-              <a href="#" className="text-slate-400 hover:text-white transition-colors">
+              <a href="https://x.com/launchreadyme" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white transition-colors">
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
                 </svg>

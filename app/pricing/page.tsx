@@ -245,32 +245,42 @@ export default function PricingPage() {
 
                 <p className="text-slate-400 mb-6">{tier.description}</p>
 
-                <button
-                  onClick={() => handleSelectPlan(tier.key)}
-                  disabled={loadingPlan !== null}
-                  className={`w-full py-3 px-4 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 ${
-                    tier.highlight
-                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                      : 'bg-slate-700 hover:bg-slate-600 text-white'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
-                >
-                  {loadingPlan === tier.key ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Loading...
-                    </>
-                  ) : tier.key === 'free' ? (
-                    <>
-                      Start Free
-                      <ArrowRight className="h-4 w-4" />
-                    </>
-                  ) : (
-                    <>
-                      {tier.key === 'enterprise' ? 'Contact Sales' : `Upgrade to ${tier.name}`}
-                      <ArrowRight className="h-4 w-4" />
-                    </>
-                  )}
-                </button>
+                {tier.key === 'enterprise' ? (
+                  <a
+                    href="mailto:sales@launchready.me?subject=Enterprise%20Plan%20Inquiry"
+                    className={`w-full py-3 px-4 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-white`}
+                  >
+                    Contact Sales
+                    <ArrowRight className="h-4 w-4" />
+                  </a>
+                ) : (
+                  <button
+                    onClick={() => handleSelectPlan(tier.key)}
+                    disabled={loadingPlan !== null}
+                    className={`w-full py-3 px-4 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 ${
+                      tier.highlight
+                        ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                        : 'bg-slate-700 hover:bg-slate-600 text-white'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    {loadingPlan === tier.key ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading...
+                      </>
+                    ) : tier.key === 'free' ? (
+                      <>
+                        Start Free
+                        <ArrowRight className="h-4 w-4" />
+                      </>
+                    ) : (
+                      <>
+                        Upgrade to {tier.name}
+                        <ArrowRight className="h-4 w-4" />
+                      </>
+                    )}
+                  </button>
+                )}
 
                 <ul className="mt-8 space-y-3">
                   {tier.features.map((feature) => (
@@ -368,12 +378,12 @@ export default function PricingPage() {
               <Link href="/pricing" className="hover:text-white transition-colors">
                 Pricing
               </Link>
-              <Link href="#" className="hover:text-white transition-colors">
+              <a href="https://github.com/msanchezgrice/launchready#readme" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
                 Docs
-              </Link>
-              <Link href="#" className="hover:text-white transition-colors">
+              </a>
+              <a href="mailto:support@launchready.me" className="hover:text-white transition-colors">
                 Support
-              </Link>
+              </a>
             </div>
           </div>
         </div>

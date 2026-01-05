@@ -9,6 +9,19 @@ import { getQueueStats } from '@/lib/scan-queue';
 import { isWorkerRunning } from '@/lib/worker';
 
 export async function GET() {
+  // Verbose logging for debugging env vars
+  const openaiKey = process.env.OPENAI_API_KEY;
+  const pagespeedKey = process.env.GOOGLE_PAGESPEED_API_KEY;
+  const browserlessKey = process.env.BROWSERLESS_API_KEY;
+
+  console.log('[Health] Environment check:', {
+    OPENAI_API_KEY: openaiKey ? `set (${openaiKey.substring(0, 10)}...${openaiKey.slice(-4)})` : 'NOT SET',
+    GOOGLE_PAGESPEED_API_KEY: pagespeedKey ? `set (${pagespeedKey.substring(0, 10)}...${pagespeedKey.slice(-4)})` : 'NOT SET',
+    BROWSERLESS_API_KEY: browserlessKey ? `set (${browserlessKey.substring(0, 10)}...${browserlessKey.slice(-4)})` : 'NOT SET',
+    NODE_ENV: process.env.NODE_ENV,
+    VERCEL_ENV: process.env.VERCEL_ENV,
+  });
+
   const health: {
     status: 'healthy' | 'degraded' | 'unhealthy';
     timestamp: string;
@@ -21,6 +34,11 @@ export async function GET() {
       pagespeed: { configured: boolean };
       browserless: { configured: boolean };
     };
+    debug?: {
+      env: string;
+      openaiKeyPrefix?: string;
+      pagespeedKeyPrefix?: string;
+    };
   } = {
     status: 'healthy',
     timestamp: new Date().toISOString(),
@@ -29,9 +47,15 @@ export async function GET() {
       database: { status: 'unknown' },
       redis: { status: 'unknown', configured: false },
       queue: { status: 'unknown' },
-      openai: { configured: !!process.env.OPENAI_API_KEY },
-      pagespeed: { configured: !!process.env.GOOGLE_PAGESPEED_API_KEY },
-      browserless: { configured: !!process.env.BROWSERLESS_API_KEY },
+      openai: { configured: !!openaiKey },
+      pagespeed: { configured: !!pagespeedKey },
+      browserless: { configured: !!browserlessKey },
+    },
+    // Add debug info (safe prefixes only)
+    debug: {
+      env: process.env.VERCEL_ENV || process.env.NODE_ENV || 'unknown',
+      openaiKeyPrefix: openaiKey ? openaiKey.substring(0, 7) : undefined,
+      pagespeedKeyPrefix: pagespeedKey ? pagespeedKey.substring(0, 7) : undefined,
     },
   };
 

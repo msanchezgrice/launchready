@@ -360,6 +360,11 @@ export async function scanGitHubRepo(
           actionable: 'Create README.md with setup instructions'
         })
       }
+
+      // Check for analytics configuration in codebase
+      const analyticsFindings = await checkAnalyticsInRepo(accessToken, owner, repo, files)
+      findings.push(...analyticsFindings.findings)
+      recommendations.push(...analyticsFindings.recommendations)
     }
 
     return {
@@ -387,6 +392,127 @@ export async function scanGitHubRepo(
       recommendations: []
     }
   }
+}
+
+/**
+ * Check for analytics configuration in the repository
+ */
+async function checkAnalyticsInRepo(
+  accessToken: string,
+  owner: string,
+  repo: string,
+  files: Array<{ path: string; type: string }>
+): Promise<{ findings: GitHubFinding[]; recommendations: GitHubRecommendation[] }> {
+  const findings: GitHubFinding[] = []
+  const recommendations: GitHubRecommendation[] = []
+
+  // Analytics patterns to detect in package.json or config files
+  const analyticsPackages = {
+    'PostHog': ['posthog-js', '@posthog/react', 'posthog-node'],
+    'Google Analytics': ['@analytics/google-analytics', 'react-ga4', 'gtag'],
+    'Plausible': ['plausible-tracker', '@plausible/tracker'],
+    'Mixpanel': ['mixpanel-browser', 'mixpanel'],
+    'Segment': ['@segment/analytics-next', 'analytics-node'],
+    'Amplitude': ['@amplitude/analytics-browser'],
+    'Vercel Analytics': ['@vercel/analytics'],
+    'Sentry': ['@sentry/nextjs', '@sentry/react', '@sentry/node'],
+  }
+
+  // Check package.json for analytics dependencies
+  const packageJson = files.find((f: { path: string }) => f.path === 'package.json')
+  if (packageJson) {
+    try {
+      const pkgResponse = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/contents/package.json`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+          },
+        }
+      )
+      
+      if (pkgResponse.ok) {
+        const pkgData = await pkgResponse.json()
+        const pkgContent = JSON.parse(Buffer.from(pkgData.content || '', 'base64').toString('utf-8'))
+        const allDeps = { ...pkgContent.dependencies, ...pkgContent.devDependencies }
+        
+        const detectedAnalytics: string[] = []
+        
+        for (const [tool, packages] of Object.entries(analyticsPackages)) {
+          if (packages.some(pkg => allDeps[pkg])) {
+            detectedAnalytics.push(tool)
+          }
+        }
+        
+        if (detectedAnalytics.length > 0) {
+          findings.push({
+            type: 'success',
+            category: 'general',
+            message: `Analytics detected: ${detectedAnalytics.join(', ')}`,
+            details: 'Analytics packages found in dependencies'
+          })
+        } else {
+          recommendations.push({
+            priority: 'medium',
+            title: 'Add analytics',
+            description: 'No analytics packages detected in dependencies',
+            actionable: 'Install PostHog, Plausible, or Google Analytics for user tracking'
+          })
+        }
+        
+        // Check for error tracking
+        if (!allDeps['@sentry/nextjs'] && !allDeps['@sentry/react'] && !allDeps['@sentry/node']) {
+          const hasOtherErrorTracking = allDeps['bugsnag'] || allDeps['@bugsnag/js'] || allDeps['rollbar']
+          if (!hasOtherErrorTracking) {
+            recommendations.push({
+              priority: 'high',
+              title: 'Add error tracking',
+              description: 'No error tracking found in dependencies',
+              actionable: 'Install Sentry for production error monitoring'
+            })
+          }
+        }
+      }
+    } catch (error) {
+      console.log('[GitHub Scanner] Could not parse package.json for analytics:', error)
+    }
+  }
+
+  // Check for vercel.json (Vercel deployment config)
+  const hasVercelConfig = files.some((f: { path: string }) => f.path === 'vercel.json')
+  if (hasVercelConfig) {
+    findings.push({
+      type: 'success',
+      category: 'general',
+      message: 'Vercel configuration found',
+      details: 'Project has vercel.json deployment config'
+    })
+  }
+
+  // Check for CI/CD configuration
+  const hasCICD = files.some((f: { path: string }) => 
+    f.path.includes('.github/workflows/') || 
+    f.path === '.gitlab-ci.yml' ||
+    f.path === '.circleci/config.yml'
+  )
+  if (hasCICD) {
+    findings.push({
+      type: 'success',
+      category: 'general',
+      message: 'CI/CD configuration detected',
+      details: 'Automated testing/deployment is configured'
+    })
+  } else {
+    recommendations.push({
+      priority: 'low',
+      title: 'Add CI/CD',
+      description: 'No CI/CD configuration found',
+      actionable: 'Add GitHub Actions for automated testing and deployment'
+    })
+  }
+
+  return { findings, recommendations }
 }
 
 /**

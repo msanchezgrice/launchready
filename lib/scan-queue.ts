@@ -223,7 +223,7 @@ export function startScanWorker(concurrency: number = 2): void {
 
   queue.process(concurrency, async (job: Job<ScanJobData>) => {
     const startTime = Date.now();
-    const { projectId, url, trigger } = job.data;
+    const { projectId, projectName, url, userId, trigger } = job.data;
 
     console.log(`[ScanWorker] Processing job ${job.id}: ${url}`);
 
@@ -239,9 +239,18 @@ export function startScanWorker(concurrency: number = 2): void {
 
       const duration = Date.now() - startTime;
 
+      let previousScore: number | undefined;
+
       // Store result in database (if Prisma is available)
       try {
         const { prisma } = await import('./prisma');
+        
+        // Get previous scan for score comparison
+        const previousScan = await prisma.scan.findFirst({
+          where: { projectId },
+          orderBy: { scannedAt: 'desc' },
+        });
+        previousScore = previousScan?.score;
         
         // Create scan record
         const scan = await prisma.scan.create({
@@ -266,6 +275,72 @@ export function startScanWorker(concurrency: number = 2): void {
         });
 
         console.log(`[ScanWorker] Saved scan ${scan.id} for project ${projectId}`);
+
+        // Send email notifications
+        try {
+          const { 
+            sendScanCompleteEmail, 
+            sendScoreDropAlert, 
+            isEmailConfigured 
+          } = await import('./email');
+          
+          if (isEmailConfigured()) {
+            // Get user details for email
+            const user = await prisma.user.findUnique({
+              where: { id: userId },
+              select: { 
+                email: true, 
+                scoreDropAlerts: true, 
+                scanCompleteNotify: true,
+              },
+            });
+
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://launchready.me';
+            const scanUrl = `${appUrl}/projects/${projectId}`;
+
+            if (user?.email) {
+              // Check for score drop alert (>10 points)
+              const scoreDropAlerts = (user as unknown as { scoreDropAlerts?: boolean }).scoreDropAlerts ?? true;
+              if (scoreDropAlerts && previousScore !== undefined) {
+                const dropAmount = previousScore - scanResult.score;
+                if (dropAmount >= 10) {
+                  await sendScoreDropAlert(user.email, {
+                    projectName,
+                    projectUrl: url,
+                    currentScore: scanResult.score,
+                    previousScore,
+                    dropAmount,
+                    scanUrl,
+                  });
+                  console.log(`[ScanWorker] Sent score drop alert for ${projectName}`);
+                }
+              }
+
+              // Send scan complete notification (only for auto-scans or if enabled)
+              const scanCompleteNotify = (user as unknown as { scanCompleteNotify?: boolean }).scanCompleteNotify ?? true;
+              if (scanCompleteNotify && trigger === 'auto-scan') {
+                await sendScanCompleteEmail(user.email, {
+                  projectName,
+                  projectUrl: url,
+                  score: scanResult.score,
+                  previousScore,
+                  phases: scanResult.phases.map(p => ({
+                    name: p.phaseName,
+                    score: p.score,
+                    maxScore: p.maxScore,
+                    status: p.score / p.maxScore >= 0.8 ? 'pass' : 
+                            p.score / p.maxScore >= 0.5 ? 'warn' : 'fail',
+                  })),
+                  scanUrl,
+                });
+                console.log(`[ScanWorker] Sent scan complete email for ${projectName}`);
+              }
+            }
+          }
+        } catch (emailError) {
+          // Log but don't fail the job if email fails
+          console.error('[ScanWorker] Failed to send email notification:', emailError);
+        }
       } catch (dbError) {
         // Log but don't fail the job if DB save fails
         console.error('[ScanWorker] Failed to save scan to database:', dbError);

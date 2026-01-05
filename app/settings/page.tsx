@@ -338,85 +338,94 @@ export default function SettingsPage() {
 
         {/* Notification Preferences */}
         <section className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-          <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
+          <h2 className="text-lg font-semibold mb-2 flex items-center gap-2">
             <Bell className="h-5 w-5 text-indigo-400" />
             Notification Preferences
           </h2>
+          <p className="text-slate-400 text-sm mb-6">
+            Choose how you want to be notified about your projects.
+          </p>
 
-          <div className="space-y-4">
+          <div className="space-y-1">
             {/* Score Drop Alerts */}
-            <div className="flex items-center justify-between py-3 border-b border-slate-700">
-              <div className="flex items-center gap-3">
-                <AlertTriangle className="h-5 w-5 text-amber-400" />
+            <div className="flex items-center justify-between p-4 rounded-lg hover:bg-slate-700/30 transition-colors">
+              <div className="flex items-start gap-4">
+                <div className="p-2 bg-amber-900/30 rounded-lg">
+                  <AlertTriangle className="h-5 w-5 text-amber-400" />
+                </div>
                 <div>
-                  <p className="font-medium">Score Drop Alerts</p>
-                  <p className="text-sm text-slate-400">
-                    Get notified when your launch readiness score drops significantly
+                  <p className="font-medium text-white">Score Drop Alerts</p>
+                  <p className="text-sm text-slate-400 mt-0.5">
+                    Get notified when your launch readiness score drops by more than 10 points
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => updateNotificationSetting('scoreDropAlerts', !settings?.scoreDropAlerts)}
                 disabled={saving}
-                className={`relative w-12 h-6 rounded-full transition-colors ${
+                className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${
                   settings?.scoreDropAlerts ? 'bg-indigo-600' : 'bg-slate-600'
                 }`}
               >
                 <span
-                  className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
-                    settings?.scoreDropAlerts ? 'translate-x-7' : 'translate-x-1'
+                  className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${
+                    settings?.scoreDropAlerts ? 'translate-x-8' : 'translate-x-1'
                   }`}
                 />
               </button>
             </div>
 
             {/* Weekly Digest */}
-            <div className="flex items-center justify-between py-3 border-b border-slate-700">
-              <div className="flex items-center gap-3">
-                <Mail className="h-5 w-5 text-blue-400" />
+            <div className="flex items-center justify-between p-4 rounded-lg hover:bg-slate-700/30 transition-colors">
+              <div className="flex items-start gap-4">
+                <div className="p-2 bg-blue-900/30 rounded-lg">
+                  <Mail className="h-5 w-5 text-blue-400" />
+                </div>
                 <div>
-                  <p className="font-medium">Weekly Digest</p>
-                  <p className="text-sm text-slate-400">
-                    Receive a weekly summary of your projects&apos; readiness scores
+                  <p className="font-medium text-white">Weekly Digest</p>
+                  <p className="text-sm text-slate-400 mt-0.5">
+                    Receive a weekly summary of all your projects&apos; readiness scores every Monday
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => updateNotificationSetting('weeklyDigest', !settings?.weeklyDigest)}
                 disabled={saving}
-                className={`relative w-12 h-6 rounded-full transition-colors ${
+                className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${
                   settings?.weeklyDigest ? 'bg-indigo-600' : 'bg-slate-600'
                 }`}
               >
                 <span
-                  className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
-                    settings?.weeklyDigest ? 'translate-x-7' : 'translate-x-1'
+                  className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${
+                    settings?.weeklyDigest ? 'translate-x-8' : 'translate-x-1'
                   }`}
                 />
               </button>
             </div>
 
             {/* Scan Complete */}
-            <div className="flex items-center justify-between py-3">
-              <div className="flex items-center gap-3">
-                <Check className="h-5 w-5 text-emerald-400" />
+            <div className="flex items-center justify-between p-4 rounded-lg hover:bg-slate-700/30 transition-colors">
+              <div className="flex items-start gap-4">
+                <div className="p-2 bg-emerald-900/30 rounded-lg">
+                  <Check className="h-5 w-5 text-emerald-400" />
+                </div>
                 <div>
-                  <p className="font-medium">Scan Complete Notifications</p>
-                  <p className="text-sm text-slate-400">
-                    Get notified when a scan finishes
+                  <p className="font-medium text-white">Scan Complete Notifications</p>
+                  <p className="text-sm text-slate-400 mt-0.5">
+                    Get notified when auto-scans finish running
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => updateNotificationSetting('scanCompleteNotify', !settings?.scanCompleteNotify)}
                 disabled={saving}
-                className={`relative w-12 h-6 rounded-full transition-colors ${
+                className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${
                   settings?.scanCompleteNotify ? 'bg-indigo-600' : 'bg-slate-600'
                 }`}
               >
                 <span
-                  className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
-                    settings?.scanCompleteNotify ? 'translate-x-7' : 'translate-x-1'
+                  className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${
+                    settings?.scanCompleteNotify ? 'translate-x-8' : 'translate-x-1'
                   }`}
                 />
               </button>

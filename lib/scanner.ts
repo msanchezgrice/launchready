@@ -41,16 +41,29 @@ export interface ScanResult {
 
 /**
  * Helper function for OpenAI API calls
+ * Uses gpt-4o-mini for fast, cost-effective analysis
  */
 async function callOpenAI(prompt: string, systemPrompt: string, maxTokens: number = 500): Promise<string | null> {
   const apiKey = process.env.OPENAI_API_KEY;
   
+  console.log('[OpenAI] Call initiated:', {
+    keyPresent: !!apiKey,
+    keyPrefix: apiKey ? apiKey.substring(0, 10) : 'NONE',
+    promptLength: prompt.length,
+    maxTokens,
+  });
+
   if (!apiKey) {
-    console.log('[OpenAI] No API key configured');
+    console.error('[OpenAI] ❌ No API key configured - check OPENAI_API_KEY env var');
+    console.error('[OpenAI] Available env vars with "KEY":', Object.keys(process.env).filter(k => k.includes('KEY')));
     return null;
   }
 
+  const model = 'gpt-4o-mini'; // Fast, cost-effective model for analysis tasks
+  console.log(`[OpenAI] Using model: ${model}`);
+
   try {
+    const startTime = Date.now();
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -58,7 +71,7 @@ async function callOpenAI(prompt: string, systemPrompt: string, maxTokens: numbe
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: prompt }
@@ -69,16 +82,32 @@ async function callOpenAI(prompt: string, systemPrompt: string, maxTokens: numbe
       signal: AbortSignal.timeout(15000) // 15s timeout
     });
 
+    const elapsed = Date.now() - startTime;
+    console.log(`[OpenAI] Response received in ${elapsed}ms, status: ${response.status}`);
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[OpenAI] API error:', response.status, errorText);
+      console.error('[OpenAI] ❌ API error:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText.substring(0, 500),
+      });
       return null;
     }
 
     const data = await response.json();
-    return data.choices?.[0]?.message?.content || null;
+    const content = data.choices?.[0]?.message?.content;
+    console.log('[OpenAI] ✅ Success:', {
+      responseLength: content?.length || 0,
+      model: data.model,
+      usage: data.usage,
+    });
+    return content || null;
   } catch (error) {
-    console.error('[OpenAI] Request failed:', error);
+    console.error('[OpenAI] ❌ Request failed:', {
+      error: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : 'Unknown',
+    });
     return null;
   }
 }
@@ -319,9 +348,16 @@ export async function checkPerformance(url: string): Promise<ScanPhaseResult> {
 
   const apiKey = process.env.GOOGLE_PAGESPEED_API_KEY;
 
+  console.log('[Scanner:Performance] PageSpeed API check:', {
+    keyPresent: !!apiKey,
+    keyPrefix: apiKey ? apiKey.substring(0, 10) : 'NONE',
+    url,
+  });
+
   if (!apiKey) {
     // Fallback: Basic performance checks without API
-    console.log('[Scanner:Performance] No PageSpeed API key, using basic checks');
+    console.error('[Scanner:Performance] ❌ No PageSpeed API key - check GOOGLE_PAGESPEED_API_KEY env var');
+    console.error('[Scanner:Performance] Available env vars with "GOOGLE":', Object.keys(process.env).filter(k => k.includes('GOOGLE')));
     
     const pageData = pageCache.get(url);
     if (pageData?.loaded) {
@@ -394,15 +430,25 @@ export async function checkPerformance(url: string): Promise<ScanPhaseResult> {
 
   // Use Google PageSpeed Insights API
   try {
-    console.log('[Scanner:Performance] Fetching PageSpeed Insights...');
+    console.log('[Scanner:Performance] ✅ Fetching PageSpeed Insights with API key...');
     const apiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&key=${apiKey}&category=performance&strategy=mobile`;
     
+    const startTime = Date.now();
     const response = await fetch(apiUrl, { 
       signal: AbortSignal.timeout(30000) // 30s timeout
     });
+    
+    const elapsed = Date.now() - startTime;
+    console.log(`[Scanner:Performance] PageSpeed response in ${elapsed}ms, status: ${response.status}`);
 
     if (!response.ok) {
-      throw new Error(`PageSpeed API error: ${response.status}`);
+      const errorText = await response.text();
+      console.error('[Scanner:Performance] ❌ PageSpeed API error:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText.substring(0, 500),
+      });
+      throw new Error(`PageSpeed API error: ${response.status} - ${errorText.substring(0, 200)}`);
     }
 
     const data = await response.json();

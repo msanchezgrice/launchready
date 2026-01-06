@@ -3,7 +3,7 @@
 import { useEffect, useState, use } from 'react'
 import { UserButton } from '@clerk/nextjs'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import {
   Rocket,
   ArrowLeft,
@@ -109,6 +109,7 @@ interface GitHubRepo {
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params)
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [project, setProject] = useState<Project | null>(null)
   const [integrations, setIntegrations] = useState<UserIntegrations | null>(null)
   const [loading, setLoading] = useState(true)
@@ -198,23 +199,9 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
-  async function handleRescan() {
-    setScanning(true)
-    setError('')
-    try {
-      const res = await fetch(`/api/projects/${resolvedParams.id}/scan`, {
-        method: 'POST',
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || data.message || 'Scan failed')
-      }
-      await fetchProject()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Scan failed')
-    } finally {
-      setScanning(false)
-    }
+  function handleRescan() {
+    // Navigate to scan progress page
+    router.push(`/scan/${resolvedParams.id}`)
   }
 
   async function handleGitHubScan() {

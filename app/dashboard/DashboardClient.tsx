@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { UserButton } from '@clerk/nextjs'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   Rocket,
@@ -110,6 +110,7 @@ export default function DashboardClient() {
   const [userRepos, setUserRepos] = useState<GitHubRepo[]>([])
   const [loadingRepos, setLoadingRepos] = useState(false)
   const searchParams = useSearchParams()
+  const router = useRouter()
 
   // Toast helpers
   const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
@@ -295,51 +296,15 @@ export default function DashboardClient() {
     }
   }
 
-  async function handleScanProject(projectId: string) {
+  function handleScanProject(projectId: string) {
     if (userPlan?.plan === 'free' && !userPlan?.canScan) {
       setUpgradeReason('scan_limit')
       setShowUpgradeModal(true)
       return
     }
 
-    setScanning(projectId)
-
-    try {
-      const res = await fetch(`/api/projects/${projectId}/scan`, {
-        method: 'POST',
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        if (data.upgrade) {
-          setUpgradeReason('scan_limit')
-          setShowUpgradeModal(true)
-        } else {
-          addToast({
-            type: 'error',
-            title: 'Scan failed',
-            message: data.error || data.message || 'Please try again.',
-          })
-        }
-        return
-      }
-
-      addToast({
-        type: 'success',
-        title: 'Scan complete!',
-        message: `Score: ${data.scan?.score || 'N/A'}/100`,
-      })
-      fetchProjects()
-    } catch {
-      addToast({
-        type: 'error',
-        title: 'Scan failed',
-        message: 'Please check your connection and try again.',
-      })
-    } finally {
-      setScanning(null)
-    }
+    // Navigate to scan progress page
+    router.push(`/scan/${projectId}`)
   }
 
   async function handleDeleteProject(projectId: string) {

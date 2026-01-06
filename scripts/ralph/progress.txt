@@ -1,0 +1,27 @@
+# Ralph Progress Log
+Started: 2026-01-06
+
+## Codebase Patterns
+(Ralph will add reusable patterns here as they're discovered)
+
+## Project Context
+- **Project:** LaunchReady - Next.js website scanner
+- **Tech Stack:** Next.js, React, TypeScript, Tailwind CSS
+- **Key Directories:**
+  - app/ - Next.js app router pages and API routes
+  - components/ - React components
+  - lib/ - Utility functions and core logic
+
+## Key Files
+- lib/scanner.ts - Main scanner logic with PageSpeed, security, content analysis
+- app/api/health/route.ts - Health check endpoint
+- app/dashboard/DashboardClient.tsx - Dashboard UI component
+
+## Current State
+- Scanner has 4 phases: Performance (PageSpeed API), Security (headers), Content (GPT-4), Monitoring (tool detection)
+- Health endpoint includes API key status checks
+- LLM-powered content analysis and executive summaries
+
+---
+
+Ralph will append iteration logs below this line as stories are completed.

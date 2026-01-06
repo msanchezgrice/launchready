@@ -29,6 +29,9 @@ import {
   Copy,
   ExternalLink as LinkIcon,
   CheckCircle,
+  Camera,
+  Monitor,
+  Smartphone,
 } from 'lucide-react'
 import ScanProgressModal from '@/components/ui/ScanProgressModal'
 import ScoreHistoryChart from '@/components/ui/ScoreHistoryChart'
@@ -98,6 +101,34 @@ interface GitHubScanResult {
     description: string
     actionable: string
   }>
+}
+
+interface VisualScanResult {
+  success: boolean
+  hasDesktopScreenshot?: boolean
+  hasMobileScreenshot?: boolean
+  desktopScreenshot?: string  // Base64
+  mobileScreenshot?: string   // Base64
+  findings: Array<{
+    type: 'success' | 'warning' | 'error'
+    category: string
+    message: string
+    details?: string
+  }>
+  recommendations: Array<{
+    priority: string
+    title: string
+    description: string
+    actionable: string
+  }>
+  metrics: {
+    loadTime?: number
+    fontsLoaded?: number
+    imagesCount?: number
+    hasViewportMeta?: boolean
+    hasFavicon?: boolean
+    mobileResponsive?: boolean
+  }
 }
 
 interface GitHubRepo {
@@ -696,6 +727,150 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                       <h4 className="text-sm font-semibold text-slate-400 mb-3">💡 Recommendations</h4>
                       <div className="space-y-2">
                         {githubScan.recommendations.map((rec, idx) => (
+                          <div key={idx} className="bg-slate-700/30 rounded-lg p-3">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                rec.priority === 'high' ? 'bg-red-500/20 text-red-400' :
+                                rec.priority === 'medium' ? 'bg-amber-500/20 text-amber-400' :
+                                'bg-slate-500/20 text-slate-400'
+                              }`}>
+                                {rec.priority}
+                              </span>
+                              <span className="font-medium text-white">{rec.title}</span>
+                            </div>
+                            <p className="text-sm text-slate-400">{rec.actionable}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
+            {/* Visual Analysis Results - from scan metadata */}
+            {(() => {
+              const metadata = latestScan.metadata as { visualScan?: VisualScanResult } | null
+              const visualScan = metadata?.visualScan
+              if (!visualScan || !visualScan.success) return null
+              
+              return (
+                <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 mb-8">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <Camera className="h-5 w-5" />
+                      Visual Analysis
+                    </h3>
+                    <div className="flex items-center gap-2 text-sm text-slate-400">
+                      {visualScan.hasDesktopScreenshot && (
+                        <span className="flex items-center gap-1">
+                          <Monitor className="h-4 w-4" /> Desktop
+                        </span>
+                      )}
+                      {visualScan.hasMobileScreenshot && (
+                        <span className="flex items-center gap-1">
+                          <Smartphone className="h-4 w-4" /> Mobile
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Screenshots */}
+                  {(visualScan.desktopScreenshot || visualScan.mobileScreenshot) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      {visualScan.desktopScreenshot && (
+                        <div className="space-y-2">
+                          <p className="text-sm text-slate-400 flex items-center gap-1">
+                            <Monitor className="h-4 w-4" /> Desktop (1280x720)
+                          </p>
+                          <img 
+                            src={`data:image/jpeg;base64,${visualScan.desktopScreenshot}`}
+                            alt="Desktop screenshot"
+                            className="rounded-lg border border-slate-600 w-full"
+                          />
+                        </div>
+                      )}
+                      {visualScan.mobileScreenshot && (
+                        <div className="space-y-2">
+                          <p className="text-sm text-slate-400 flex items-center gap-1">
+                            <Smartphone className="h-4 w-4" /> Mobile (375x667)
+                          </p>
+                          <img 
+                            src={`data:image/jpeg;base64,${visualScan.mobileScreenshot}`}
+                            alt="Mobile screenshot"
+                            className="rounded-lg border border-slate-600 w-full max-w-[200px]"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Metrics */}
+                  {visualScan.metrics && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                      {visualScan.metrics.loadTime !== undefined && (
+                        <div className="bg-slate-700/30 rounded-lg p-3 text-center">
+                          <p className="text-2xl font-bold text-white">
+                            {(visualScan.metrics.loadTime / 1000).toFixed(1)}s
+                          </p>
+                          <p className="text-xs text-slate-400">Load Time</p>
+                        </div>
+                      )}
+                      {visualScan.metrics.mobileResponsive !== undefined && (
+                        <div className="bg-slate-700/30 rounded-lg p-3 text-center">
+                          <p className={`text-2xl font-bold ${visualScan.metrics.mobileResponsive ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {visualScan.metrics.mobileResponsive ? '✓' : '✗'}
+                          </p>
+                          <p className="text-xs text-slate-400">Mobile Ready</p>
+                        </div>
+                      )}
+                      {visualScan.metrics.hasViewportMeta !== undefined && (
+                        <div className="bg-slate-700/30 rounded-lg p-3 text-center">
+                          <p className={`text-2xl font-bold ${visualScan.metrics.hasViewportMeta ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {visualScan.metrics.hasViewportMeta ? '✓' : '✗'}
+                          </p>
+                          <p className="text-xs text-slate-400">Viewport Meta</p>
+                        </div>
+                      )}
+                      {visualScan.metrics.hasFavicon !== undefined && (
+                        <div className="bg-slate-700/30 rounded-lg p-3 text-center">
+                          <p className={`text-2xl font-bold ${visualScan.metrics.hasFavicon ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {visualScan.metrics.hasFavicon ? '✓' : '✗'}
+                          </p>
+                          <p className="text-xs text-slate-400">Favicon</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Findings */}
+                  {visualScan.findings && visualScan.findings.length > 0 && (
+                    <div className="space-y-2 mb-4">
+                      {visualScan.findings.map((finding, idx) => (
+                        <div key={idx} className="flex items-start gap-2 text-sm">
+                          <span className={
+                            finding.type === 'success' ? 'text-emerald-400' :
+                            finding.type === 'warning' ? 'text-amber-400' : 'text-red-400'
+                          }>
+                            {finding.type === 'success' ? '✓' : finding.type === 'warning' ? '⚠' : '✗'}
+                          </span>
+                          <div>
+                            <span className="text-slate-300">{finding.message}</span>
+                            {finding.details && (
+                              <p className="text-xs text-slate-500 mt-0.5">{finding.details}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Recommendations */}
+                  {visualScan.recommendations && visualScan.recommendations.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-slate-700">
+                      <h4 className="text-sm font-semibold text-slate-400 mb-3">💡 Visual Recommendations</h4>
+                      <div className="space-y-2">
+                        {visualScan.recommendations.map((rec, idx) => (
                           <div key={idx} className="bg-slate-700/30 rounded-lg p-3">
                             <div className="flex items-center gap-2 mb-1">
                               <span className={`text-xs px-2 py-0.5 rounded-full ${

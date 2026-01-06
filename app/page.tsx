@@ -18,6 +18,9 @@ import {
   Check,
   Rocket,
   LayoutDashboard,
+  Camera,
+  Code,
+  Smartphone,
 } from 'lucide-react';
 
 const whatWeCheck = [
@@ -44,22 +47,25 @@ const whatWeCheck = [
   {
     icon: BarChart3,
     title: "Analytics",
-    items: ["Tracking setup", "Event flow", "Tools detected"],
+    items: ["Deep code scan", "PostHog/GA", "Error tracking"],
   },
   {
-    icon: Share2,
-    title: "Social",
-    items: ["Twitter/X", "LinkedIn", "Product Hunt"],
+    icon: Camera,
+    title: "Visual",
+    items: ["Screenshots", "Mobile/Desktop", "Load time"],
+    isNew: true,
   },
   {
-    icon: FileText,
-    title: "Content",
-    items: ["Copy quality", "CTAs", "Messaging"],
+    icon: Code,
+    title: "Code Quality",
+    items: ["Source scan", "Dependencies", "Secrets check"],
+    isNew: true,
   },
   {
-    icon: Bell,
-    title: "Monitoring",
-    items: ["Error tracking", "Uptime", "Alerts"],
+    icon: Smartphone,
+    title: "Mobile",
+    items: ["Responsive", "Viewport meta", "No overflow"],
+    isNew: true,
   },
 ];
 
@@ -222,6 +228,9 @@ export default function Home() {
             </h1>
             <p className="text-xl md:text-2xl text-slate-400 mb-4">
               Get a comprehensive readiness score across 8 critical areas
+            </p>
+            <p className="text-sm text-indigo-400 mb-2">
+              ✨ Now with visual screenshots & deep code analysis
             </p>
             <p className="text-lg text-slate-400 mb-10">
               in 60 seconds. No signup required.
@@ -394,8 +403,17 @@ export default function Home() {
                 {whatWeCheck.map((check, i) => (
                   <div
                     key={i}
-                    className="bg-slate-800/50 border border-slate-700 hover:border-indigo-500/50 transition-all duration-300 rounded-xl p-5"
+                    className={`bg-slate-800/50 border transition-all duration-300 rounded-xl p-5 relative ${
+                      'isNew' in check && check.isNew 
+                        ? 'border-indigo-500/50 hover:border-indigo-400' 
+                        : 'border-slate-700 hover:border-indigo-500/50'
+                    }`}
                   >
+                    {'isNew' in check && check.isNew && (
+                      <span className="absolute -top-2 -right-2 bg-indigo-500 text-white text-xs px-2 py-0.5 rounded-full font-medium">
+                        NEW
+                      </span>
+                    )}
                     <div className="flex items-center gap-3 mb-3">
                       <check.icon className="w-5 h-5 text-indigo-400" />
                       <h3 className="font-semibold text-white">{check.title}</h3>

@@ -75,6 +75,114 @@ const IGNORE_PATTERNS = [
   /pnpm-lock\.yaml$/,
 ]
 
+// Deep source code patterns for analytics detection
+const ANALYTICS_SOURCE_PATTERNS = {
+  // PostHog patterns
+  'PostHog': [
+    /posthog\.init\s*\(/i,
+    /PostHogProvider/i,
+    /usePostHog/i,
+    /'posthog-js'/i,
+    /"posthog-js"/i,
+    /from\s+['"]posthog/i,
+    /import.*posthog/i,
+    /NEXT_PUBLIC_POSTHOG/i,
+    /posthog\.capture/i,
+  ],
+  // Google Analytics patterns
+  'Google Analytics': [
+    /gtag\s*\(/i,
+    /GoogleAnalytics/i,
+    /GA_TRACKING_ID/i,
+    /GA_MEASUREMENT_ID/i,
+    /react-ga/i,
+    /analytics\.js/i,
+    /googletagmanager/i,
+    /gtm\.js/i,
+  ],
+  // Plausible patterns
+  'Plausible': [
+    /plausible/i,
+    /PlausibleProvider/i,
+    /usePlausible/i,
+    /plausible-tracker/i,
+  ],
+  // Mixpanel patterns
+  'Mixpanel': [
+    /mixpanel\.init/i,
+    /mixpanel\.track/i,
+    /MixpanelProvider/i,
+    /from\s+['"]mixpanel/i,
+  ],
+  // Segment patterns
+  'Segment': [
+    /analytics\.track/i,
+    /analytics\.identify/i,
+    /AnalyticsBrowser/i,
+    /segment\.com/i,
+    /@segment\//i,
+  ],
+  // Amplitude patterns
+  'Amplitude': [
+    /amplitude\.init/i,
+    /amplitude\.track/i,
+    /AmplitudeProvider/i,
+    /@amplitude\//i,
+  ],
+  // Vercel Analytics patterns
+  'Vercel Analytics': [
+    /@vercel\/analytics/i,
+    /Analytics\s*\/>/i,
+    /vercel\/analytics/i,
+  ],
+  // Sentry patterns (error tracking)
+  'Sentry': [
+    /Sentry\.init/i,
+    /SentryProvider/i,
+    /@sentry\//i,
+    /sentry\.io/i,
+    /captureException/i,
+  ],
+  // Hotjar patterns
+  'Hotjar': [
+    /hotjar/i,
+    /hj\s*\(/i,
+    /HOTJAR_ID/i,
+  ],
+  // LogRocket patterns
+  'LogRocket': [
+    /LogRocket\.init/i,
+    /logrocket/i,
+  ],
+  // FullStory patterns
+  'FullStory': [
+    /FullStory/i,
+    /fullstory/i,
+    /_fs_/i,
+  ],
+}
+
+// Priority source files for analytics detection
+const ANALYTICS_PRIORITY_FILES = [
+  'app/layout.tsx',
+  'app/layout.jsx',
+  'app/layout.js',
+  'pages/_app.tsx',
+  'pages/_app.jsx',
+  'pages/_app.js',
+  'app/providers.tsx',
+  'app/providers.jsx',
+  'src/app/layout.tsx',
+  'src/pages/_app.tsx',
+  'components/providers.tsx',
+  'lib/analytics.ts',
+  'lib/analytics.js',
+  'utils/analytics.ts',
+  'next.config.js',
+  'next.config.mjs',
+  'next.config.ts',
+]
+
 /**
  * Scan a GitHub repository for security issues
  */
@@ -649,6 +757,114 @@ async function scanEnvFiles(
 }
 
 /**
+ * Deep source code scanning for analytics patterns
+ * Scans actual source files for analytics initialization and usage
+ */
+async function deepSourceScan(
+  accessToken: string,
+  owner: string,
+  repo: string,
+  files: Array<{ path: string; type: string }>
+): Promise<{ detectedServices: string[]; findings: GitHubFinding[] }> {
+  const detectedServices: string[] = []
+  const findings: GitHubFinding[] = []
+  
+  // Get priority files that exist in the repo
+  const priorityFilesToScan = ANALYTICS_PRIORITY_FILES.filter(priorityFile =>
+    files.some(f => f.path === priorityFile || f.path.endsWith(priorityFile))
+  )
+  
+  // Also check any .tsx/.ts files in app/ or src/ directories (limit to 20 files max)
+  const sourceFiles = files
+    .filter(f => 
+      (f.path.match(/\.(tsx?|jsx?)$/) && 
+       (f.path.startsWith('app/') || f.path.startsWith('src/') || f.path.startsWith('pages/') || f.path.startsWith('lib/') || f.path.startsWith('components/'))) &&
+      !IGNORE_PATTERNS.some(pattern => pattern.test(f.path))
+    )
+    .slice(0, 20) // Limit to avoid API rate limits
+  
+  const filesToScan = [...new Set([...priorityFilesToScan, ...sourceFiles.map(f => f.path)])]
+  
+  console.log(`[GitHub Scanner] Deep scanning ${filesToScan.length} source files for analytics...`)
+  
+  for (const filePath of filesToScan) {
+    try {
+      const contentResponse = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+          },
+        }
+      )
+
+      if (!contentResponse.ok) continue
+
+      const contentData = await contentResponse.json()
+      
+      // Skip if file is too large (>500KB)
+      if (contentData.size > 500000) continue
+      
+      const content = Buffer.from(contentData.content || '', 'base64').toString('utf-8')
+
+      // Check each analytics pattern
+      for (const [serviceName, patterns] of Object.entries(ANALYTICS_SOURCE_PATTERNS)) {
+        const hasService = patterns.some(pattern => pattern.test(content))
+        if (hasService && !detectedServices.includes(serviceName)) {
+          detectedServices.push(serviceName)
+          console.log(`[GitHub Scanner] Found ${serviceName} in ${filePath}`)
+        }
+      }
+
+    } catch (error) {
+      // Skip files that can't be read
+      continue
+    }
+  }
+
+  // Generate findings for detected services
+  const analyticsServices = detectedServices.filter(s => 
+    ['PostHog', 'Google Analytics', 'Plausible', 'Mixpanel', 'Segment', 'Amplitude', 'Vercel Analytics'].includes(s)
+  )
+  const errorTrackingServices = detectedServices.filter(s =>
+    ['Sentry'].includes(s)
+  )
+  const sessionRecordingServices = detectedServices.filter(s =>
+    ['Hotjar', 'LogRocket', 'FullStory'].includes(s)
+  )
+
+  if (analyticsServices.length > 0) {
+    findings.push({
+      type: 'success',
+      category: 'general',
+      message: `Analytics detected (deep scan): ${analyticsServices.join(', ')}`,
+      details: 'Found in source code initialization'
+    })
+  }
+
+  if (errorTrackingServices.length > 0) {
+    findings.push({
+      type: 'success',
+      category: 'general',
+      message: `Error tracking detected (deep scan): ${errorTrackingServices.join(', ')}`,
+      details: 'Found in source code'
+    })
+  }
+
+  if (sessionRecordingServices.length > 0) {
+    findings.push({
+      type: 'success',
+      category: 'general',
+      message: `Session recording detected (deep scan): ${sessionRecordingServices.join(', ')}`,
+      details: 'Found in source code'
+    })
+  }
+
+  return { detectedServices, findings }
+}
+
+/**
  * Check for analytics configuration in the repository
  */
 async function checkAnalyticsInRepo(
@@ -677,6 +893,15 @@ async function checkAnalyticsInRepo(
   const envScanResults = await scanEnvFiles(accessToken, owner, repo, files)
   findings.push(...envScanResults.findings)
   allDetectedServices.push(...envScanResults.detectedServices)
+
+  // Deep scan source files for analytics patterns (most accurate)
+  const deepScanResults = await deepSourceScan(accessToken, owner, repo, files)
+  findings.push(...deepScanResults.findings)
+  for (const service of deepScanResults.detectedServices) {
+    if (!allDetectedServices.includes(service)) {
+      allDetectedServices.push(service)
+    }
+  }
 
   // Check package.json for analytics dependencies
   const packageJson = files.find((f: { path: string }) => f.path === 'package.json')

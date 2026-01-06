@@ -1,0 +1,58 @@
+{
+  "branchName": "ralph/feature-name",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Example: Add basic component",
+      "description": "Create a simple component to demonstrate Ralph workflow",
+      "acceptanceCriteria": [
+        "Component file created in appropriate directory",
+        "Component exports default function",
+        "TypeScript types are defined",
+        "npm run typecheck passes",
+        "Component can be imported without errors"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Example: Add component tests",
+      "description": "Add tests for the component created in US-001",
+      "acceptanceCriteria": [
+        "Test file created with proper naming convention",
+        "Tests cover basic rendering",
+        "npm test passes",
+        "Test coverage meets project standards"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Example: Add validation logic",
+      "description": "Add input validation to the component",
+      "acceptanceCriteria": [
+        "Validation function implemented",
+        "Error messages display correctly",
+        "Edge cases handled (empty, invalid, etc.)",
+        "Tests updated to cover validation",
+        "npm run typecheck passes",
+        "npm test passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    }
+  ],
+  "projectInfo": {
+    "description": "LaunchReady - Next.js website scanner",
+    "techStack": ["Next.js", "React", "TypeScript", "Tailwind CSS"],
+    "testCommand": "npm test",
+    "buildCommand": "npm run build",
+    "typecheckCommand": "npm run typecheck",
+    "lintCommand": "npm run lint"
+  }
+}

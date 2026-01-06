@@ -8,6 +8,9 @@ import { canScan, getPlanLimits } from '@/lib/stripe'
 import { isRedisConfigured } from '@/lib/redis'
 import { addScanJob } from '@/lib/scan-queue'
 
+// Extend timeout for scan (includes main scan + GitHub scan + visual scan)
+export const maxDuration = 120 // 2 minutes
+
 type Params = Promise<{ id: string }>
 
 // POST /api/projects/[id]/scan - Trigger project scan
@@ -125,7 +128,10 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     }
 
     // Synchronous scan (default)
+    const startTime = Date.now()
+    console.log(`[Scan] Starting main scan for ${project.url}`)
     const scanResult = await scanProject(project.url)
+    console.log(`[Scan] Main scan completed in ${Date.now() - startTime}ms`)
 
     // Automatically run GitHub scan if repo is configured and GitHub is connected
     let githubScanResult: GitHubScanResult | null = null
@@ -146,11 +152,13 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     // Run visual scan (screenshots, mobile responsiveness)
     // Must await this or Vercel will terminate the function before it completes
     let visualScanResult: { desktopUrl?: string; mobileUrl?: string; metrics?: object; findings?: object[]; recommendations?: object[] } | null = null
-    console.log(`[Scan] Starting visual scan for ${project.url}`)
+    const visualStartTime = Date.now()
+    console.log(`[Scan] Starting visual scan for ${project.url} at ${visualStartTime}`)
     try {
       const result = await runVisualScan(project.url)
+      console.log(`[Scan] Visual scan finished in ${Date.now() - visualStartTime}ms, success=${result.success}`)
       if (result.success) {
-        console.log(`[Scan] Visual scan complete!`)
+        console.log(`[Scan] Visual scan URLs: desktop=${result.screenshots.desktopUrl}, mobile=${result.screenshots.mobileUrl}`)
         visualScanResult = {
           desktopUrl: result.screenshots.desktopUrl,
           mobileUrl: result.screenshots.mobileUrl,
@@ -162,7 +170,7 @@ export async function POST(request: NextRequest, { params }: { params: Params })
         console.log(`[Scan] Visual scan failed: ${result.error}`)
       }
     } catch (error) {
-      console.error('[Scan] Visual scan error:', error)
+      console.error(`[Scan] Visual scan error after ${Date.now() - visualStartTime}ms:`, error)
     }
 
     // Build metadata object

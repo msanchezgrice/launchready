@@ -78,11 +78,15 @@ export default function ScanProgressModal({
   const [error, setError] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
 
-  // Initialize phases when modal opens
+  // Initialize phases when modal opens - start first phase immediately
   useEffect(() => {
     if (isOpen) {
-      setPhases(SCAN_PHASES.map((p) => ({ ...p, status: 'pending' as const })))
-      setTotalProgress(0)
+      // Start with first phase already scanning for immediate visual feedback
+      setPhases(SCAN_PHASES.map((p, idx) => ({ 
+        ...p, 
+        status: idx === 0 ? 'scanning' as const : 'pending' as const 
+      })))
+      setTotalProgress(6) // Start with some progress
       setElapsedTime(0)
       setScanComplete(false)
       setError(null)
@@ -100,66 +104,83 @@ export default function ScanProgressModal({
     return () => clearInterval(timer)
   }, [isOpen, isRunning])
 
-  // Run scan
+  // Run scan - start animations immediately, API call runs in background
   useEffect(() => {
     if (!isOpen || !projectId || !isRunning) return
     
     let cancelled = false
+    let apiError: string | null = null
 
-    async function runScan() {
-      try {
-        const res = await fetch(`/api/projects/${projectId}/scan`, {
-          method: 'POST',
-        })
-
-        if (!res.ok) {
-          const data = await res.json()
-          setError(data.error || 'Scan failed')
-          setIsRunning(false)
-          return
-        }
-
-        // Simulate phase-by-phase progress
-        for (let i = 0; i < SCAN_PHASES.length; i++) {
-          if (cancelled) return
-
-          setPhases((prev) => prev.map((p, idx) => 
-            idx === i ? { ...p, status: 'scanning' as const } : p
-          ))
-          setTotalProgress(Math.round(((i + 0.5) / SCAN_PHASES.length) * 100))
-
-          await new Promise((resolve) => setTimeout(resolve, 2500))
-
-          if (cancelled) return
-
-          const score = Math.floor(SCAN_PHASES[i].maxScore * (0.7 + Math.random() * 0.3))
-          setPhases((prev) => prev.map((p, idx) =>
-            idx === i
-              ? { ...p, status: 'complete' as const, score, summary: getRandomSummary(SCAN_PHASES[i].name) }
-              : p
-          ))
-          setTotalProgress(Math.round(((i + 1) / SCAN_PHASES.length) * 100))
-        }
-
-        setScanComplete(true)
-        setIsRunning(false)
-        
-        // Call onComplete callback or redirect
-        setTimeout(() => {
-          if (onComplete) {
-            onComplete()
-          }
-          onClose()
-          router.push(`/projects/${projectId}?scanned=true`)
-        }, 2000)
-      } catch (err) {
-        console.error('Scan error:', err)
-        setError('Scan failed. Please try again.')
-        setIsRunning(false)
+    // Fire API call immediately but don't wait for it
+    const apiPromise = fetch(`/api/projects/${projectId}/scan`, {
+      method: 'POST',
+    }).then(async (res) => {
+      if (!res.ok) {
+        const data = await res.json()
+        apiError = data.error || 'Scan failed'
       }
+    }).catch((err) => {
+      console.error('Scan API error:', err)
+      apiError = 'Network error. Please try again.'
+    })
+
+    async function runAnimation() {
+      // Start animations immediately - first phase is already "scanning" from init
+      // Wait a short moment for visual effect on first phase
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      
+      // Complete first phase
+      if (cancelled) return
+      const firstScore = Math.floor(SCAN_PHASES[0].maxScore * (0.7 + Math.random() * 0.3))
+      setPhases((prev) => prev.map((p, idx) =>
+        idx === 0
+          ? { ...p, status: 'complete' as const, score: firstScore, summary: getRandomSummary(SCAN_PHASES[0].name) }
+          : idx === 1 ? { ...p, status: 'scanning' as const } : p
+      ))
+      setTotalProgress(Math.round((1 / SCAN_PHASES.length) * 100))
+
+      // Continue with remaining phases
+      for (let i = 1; i < SCAN_PHASES.length; i++) {
+        if (cancelled) return
+
+        // Wait for phase animation
+        await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 1000))
+
+        if (cancelled) return
+
+        const score = Math.floor(SCAN_PHASES[i].maxScore * (0.7 + Math.random() * 0.3))
+        setPhases((prev) => prev.map((p, idx) =>
+          idx === i
+            ? { ...p, status: 'complete' as const, score, summary: getRandomSummary(SCAN_PHASES[i].name) }
+            : idx === i + 1 ? { ...p, status: 'scanning' as const } : p
+        ))
+        setTotalProgress(Math.round(((i + 1) / SCAN_PHASES.length) * 100))
+      }
+
+      // Wait for API to complete
+      await apiPromise
+
+      // Check for API errors
+      if (apiError) {
+        setError(apiError)
+        setIsRunning(false)
+        return
+      }
+
+      setScanComplete(true)
+      setIsRunning(false)
+      
+      // Call onComplete callback or redirect
+      setTimeout(() => {
+        if (onComplete) {
+          onComplete()
+        }
+        onClose()
+        router.push(`/projects/${projectId}?scanned=true`)
+      }, 2000)
     }
 
-    runScan()
+    runAnimation()
     return () => { cancelled = true }
   }, [isOpen, projectId, router, onClose, onComplete, isRunning])
 

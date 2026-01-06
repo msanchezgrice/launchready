@@ -195,9 +195,21 @@ export async function scanGitHubRepo(
   let score = 0
   const maxScore = 100
 
-  // Parse repo from URL
-  const repoMatch = repoUrl.match(/github\.com[/:]([^/]+)\/([^/.]+)/i)
-  if (!repoMatch) {
+  // Parse repo from URL or owner/repo format
+  // Supports: github.com/owner/repo, https://github.com/owner/repo, owner/repo
+  let owner: string
+  let repo: string
+  
+  const fullUrlMatch = repoUrl.match(/github\.com[/:]([^/]+)\/([^/.]+)/i)
+  const shortMatch = repoUrl.match(/^([^/]+)\/([^/]+)$/)
+  
+  if (fullUrlMatch) {
+    owner = fullUrlMatch[1]
+    repo = fullUrlMatch[2]
+  } else if (shortMatch) {
+    owner = shortMatch[1]
+    repo = shortMatch[2]
+  } else {
     return {
       connected: true,
       repoFound: false,
@@ -212,8 +224,6 @@ export async function scanGitHubRepo(
       recommendations: []
     }
   }
-
-  const [, owner, repo] = repoMatch
   console.log(`[GitHub Scanner] Scanning ${owner}/${repo}`)
 
   try {

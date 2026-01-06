@@ -28,11 +28,10 @@ interface ScanPhase {
   status: 'pending' | 'scanning' | 'complete' | 'error'
   score?: number
   maxScore: number
-  duration?: number
   summary?: string
 }
 
-const SCAN_PHASES: Omit<ScanPhase, 'status' | 'score' | 'duration' | 'summary'>[] = [
+const SCAN_PHASES: Omit<ScanPhase, 'status' | 'score' | 'summary'>[] = [
   { id: 1, name: 'Domain & DNS', description: 'DNS resolves, SSL valid, HTTPS enforced', icon: Globe, maxScore: 15 },
   { id: 2, name: 'SEO Fundamentals', description: 'Title, meta, OG tags, sitemap', icon: Search, maxScore: 12 },
   { id: 3, name: 'Performance', description: 'PageSpeed, Core Web Vitals, page size', icon: Zap, maxScore: 13 },
@@ -60,55 +59,49 @@ function getRandomSummary(phaseName: string): string {
 
 export default function ScanProgressPage() {
   const params = useParams()
-  const projectId = params?.projectId as string
+  const projectId = (params?.projectId as string) || ''
   const router = useRouter()
   
   const [project, setProject] = useState<{ name: string; url: string } | null>(null)
-  const [phases, setPhases] = useState<ScanPhase[]>(
-    SCAN_PHASES.map((p) => ({ ...p, status: 'pending' as const }))
-  )
+  const [phases, setPhases] = useState<ScanPhase[]>([])
   const [totalProgress, setTotalProgress] = useState(0)
   const [elapsedTime, setElapsedTime] = useState(0)
   const [scanComplete, setScanComplete] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [mounted, setMounted] = useState(false)
+  const [isInitialized, setIsInitialized] = useState(false)
 
-  // Set mounted state
+  // Initialize phases after mount
   useEffect(() => {
-    setMounted(true)
+    setPhases(SCAN_PHASES.map((p) => ({ ...p, status: 'pending' as const })))
+    setIsInitialized(true)
   }, [])
 
   // Fetch project info
   useEffect(() => {
-    if (!projectId || !mounted) return
+    if (!projectId) return
     
-    async function fetchProject() {
-      try {
-        const res = await fetch(`/api/projects/${projectId}`)
-        if (res.ok) {
-          const data = await res.json()
+    fetch(`/api/projects/${projectId}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.project) {
           setProject({ name: data.project.name, url: data.project.url })
         }
-      } catch (err) {
-        console.error('Failed to fetch project:', err)
-      }
-    }
-    fetchProject()
-  }, [projectId, mounted])
+      })
+      .catch(err => console.error('Failed to fetch project:', err))
+  }, [projectId])
 
   // Timer
   useEffect(() => {
-    if (!mounted) return
     const startTime = Date.now()
     const timer = setInterval(() => {
       setElapsedTime(Math.floor((Date.now() - startTime) / 1000))
     }, 1000)
     return () => clearInterval(timer)
-  }, [mounted])
+  }, [])
 
   // Run scan
   useEffect(() => {
-    if (!projectId || !mounted) return
+    if (!projectId || !isInitialized) return
     
     let cancelled = false
 
@@ -124,6 +117,7 @@ export default function ScanProgressPage() {
           return
         }
 
+        // Simulate phase-by-phase progress
         for (let i = 0; i < SCAN_PHASES.length; i++) {
           if (cancelled) return
 
@@ -139,13 +133,7 @@ export default function ScanProgressPage() {
           const score = Math.floor(SCAN_PHASES[i].maxScore * (0.7 + Math.random() * 0.3))
           setPhases((prev) => prev.map((p, idx) =>
             idx === i
-              ? {
-                  ...p,
-                  status: 'complete' as const,
-                  score,
-                  duration: Math.floor(2 + Math.random() * 5),
-                  summary: getRandomSummary(SCAN_PHASES[i].name),
-                }
+              ? { ...p, status: 'complete' as const, score, summary: getRandomSummary(SCAN_PHASES[i].name) }
               : p
           ))
           setTotalProgress(Math.round(((i + 1) / SCAN_PHASES.length) * 100))
@@ -163,7 +151,7 @@ export default function ScanProgressPage() {
 
     runScan()
     return () => { cancelled = true }
-  }, [projectId, router, mounted])
+  }, [projectId, router, isInitialized])
 
   const getHostname = () => {
     if (!project?.url) return 'your site'
@@ -177,44 +165,13 @@ export default function ScanProgressPage() {
 
   const completedPhases = phases.filter((p) => p.status === 'complete').length
 
-  // Show loading state until mounted
-  if (!mounted) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 text-white">
-        <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
-            <div className="flex items-center justify-between">
-              <Link
-                href="/dashboard"
-                className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back
-              </Link>
-              <Link href="/" className="flex items-center gap-2">
-                <Rocket className="h-6 w-6 text-indigo-500" />
-                <span className="font-semibold">LaunchReady.me</span>
-              </Link>
-            </div>
-          </div>
-        </header>
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 py-12">
-          <div className="text-center">
-            <Loader2 className="h-12 w-12 animate-spin mx-auto text-indigo-400" />
-            <p className="mt-4 text-slate-400 text-lg">Initializing scan...</p>
-          </div>
-        </main>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 text-white">
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between">
             <Link
-              href={`/projects/${projectId}`}
+              href={projectId ? `/projects/${projectId}` : '/dashboard'}
               className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -229,7 +186,12 @@ export default function ScanProgressPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-12">
-        {error ? (
+        {!isInitialized ? (
+          <div className="text-center">
+            <Loader2 className="h-12 w-12 animate-spin mx-auto text-indigo-400" />
+            <p className="mt-4 text-slate-400 text-lg">Initializing scan...</p>
+          </div>
+        ) : error ? (
           <div className="text-center">
             <div className="inline-flex items-center justify-center w-20 h-20 bg-red-900/30 rounded-full mb-6">
               <AlertCircle className="h-10 w-10 text-red-400" />
@@ -246,6 +208,7 @@ export default function ScanProgressPage() {
           </div>
         ) : (
           <>
+            {/* Title */}
             <div className="text-center mb-10">
               <h1 className="text-3xl font-bold mb-2">
                 {scanComplete ? (
@@ -259,6 +222,7 @@ export default function ScanProgressPage() {
               )}
             </div>
 
+            {/* Progress bar */}
             <div className="mb-10">
               <div className="flex items-center justify-between text-sm mb-2">
                 <span className="text-slate-400">{completedPhases}/8 complete</span>
@@ -276,6 +240,7 @@ export default function ScanProgressPage() {
               </div>
             </div>
 
+            {/* Phases list */}
             <div className="space-y-3 mb-10">
               {phases.map((phase, idx) => {
                 const Icon = phase.icon
@@ -325,10 +290,12 @@ export default function ScanProgressPage() {
               })}
             </div>
 
+            {/* Timer */}
             <div className="text-center text-slate-500 mb-8">
               Time elapsed: <span className="text-white font-medium">{elapsedTime}s</span>
             </div>
 
+            {/* While you wait card */}
             {!scanComplete && (
               <div className="bg-gradient-to-r from-indigo-900/30 to-purple-900/30 rounded-xl border border-indigo-500/30 p-6 text-center">
                 <h3 className="text-lg font-semibold mb-2">💡 While you wait...</h3>
@@ -343,6 +310,7 @@ export default function ScanProgressPage() {
               </div>
             )}
 
+            {/* Scan complete */}
             {scanComplete && (
               <div className="text-center">
                 <p className="text-slate-400 mb-4">Redirecting to results...</p>

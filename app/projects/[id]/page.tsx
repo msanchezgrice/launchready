@@ -30,6 +30,7 @@ import {
   ExternalLink as LinkIcon,
   CheckCircle,
 } from 'lucide-react'
+import ScanProgressModal from '@/components/ui/ScanProgressModal'
 
 interface Finding {
   type: 'success' | 'warning' | 'error'
@@ -115,6 +116,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [scanning, setScanning] = useState(false)
+  const [showScanModal, setShowScanModal] = useState(false)
   const [expandedPhases, setExpandedPhases] = useState<Set<number>>(new Set())
   const [githubScan, setGithubScan] = useState<GitHubScanResult | null>(null)
   const [githubScanning, setGithubScanning] = useState(false)
@@ -200,8 +202,8 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   }
 
   function handleRescan() {
-    // Navigate to scan progress page
-    router.push(`/scan/${resolvedParams.id}`)
+    // Show scan progress modal
+    setShowScanModal(true)
   }
 
   async function handleGitHubScan() {
@@ -1021,6 +1023,15 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
       )}
+
+      {/* Scan Progress Modal */}
+      <ScanProgressModal
+        isOpen={showScanModal}
+        onClose={() => setShowScanModal(false)}
+        projectId={resolvedParams.id}
+        projectUrl={project?.url}
+        onComplete={fetchProject}
+      />
     </div>
   )
 }

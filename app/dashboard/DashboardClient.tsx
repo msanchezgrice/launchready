@@ -35,6 +35,7 @@ import {
 import UpgradeModal from '@/components/ui/UpgradeModal'
 import { ProjectCardSkeleton } from '@/components/ui/Skeleton'
 import ScanProgressIndicator from '@/components/ui/ScanProgressIndicator'
+import ScanProgressModal from '@/components/ui/ScanProgressModal'
 
 interface Project {
   id: string
@@ -102,6 +103,7 @@ export default function DashboardClient() {
   const [newProject, setNewProject] = useState({ name: '', url: '', githubRepo: '', autoScan: false })
   const [addingProject, setAddingProject] = useState(false)
   const [scanning, setScanning] = useState<string | null>(null)
+  const [scanModalProject, setScanModalProject] = useState<{ id: string; url: string } | null>(null)
   const [manageLoading, setManageLoading] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
@@ -303,8 +305,11 @@ export default function DashboardClient() {
       return
     }
 
-    // Navigate to scan progress page
-    router.push(`/scan/${projectId}`)
+    // Find the project to get its URL
+    const project = projects.find(p => p.id === projectId)
+    if (project) {
+      setScanModalProject({ id: projectId, url: project.url })
+    }
   }
 
   async function handleDeleteProject(projectId: string) {
@@ -1196,6 +1201,15 @@ export default function DashboardClient() {
         currentProjectCount={userPlan?.projectCount || 0}
         maxProjects={userPlan?.maxProjects || 1}
         reason={upgradeReason}
+      />
+
+      {/* Scan Progress Modal */}
+      <ScanProgressModal
+        isOpen={!!scanModalProject}
+        onClose={() => setScanModalProject(null)}
+        projectId={scanModalProject?.id || ''}
+        projectUrl={scanModalProject?.url}
+        onComplete={fetchProjects}
       />
     </div>
   )

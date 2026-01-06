@@ -850,7 +850,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
             {/* Recommendations Tab */}
             {activeTab === 'recommendations' && (
-              <RecommendationsTab phases={latestScan.phases} parseJSON={parseJSON} />
+              <RecommendationsTab phases={latestScan.phases} parseJSON={parseJSON} projectId={project.id} />
             )}
 
             {/* History Tab */}
@@ -1047,25 +1047,84 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 // Recommendations Tab Component
 function RecommendationsTab({ 
   phases, 
-  parseJSON 
+  parseJSON,
+  projectId,
 }: { 
   phases: Phase[]
   parseJSON: (data: unknown, fallback?: unknown[]) => unknown[]
+  projectId: string
 }) {
   const [sortBy, setSortBy] = useState<'priority' | 'phase'>('priority')
   const [filterPhase, setFilterPhase] = useState<string>('all')
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set())
+  const [showDismissed, setShowDismissed] = useState(false)
+
+  // Fetch dismissed recommendations on mount
+  useEffect(() => {
+    async function fetchDismissed() {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/recommendations`)
+        if (res.ok) {
+          const data = await res.json()
+          setDismissedKeys(new Set(data.dismissed || []))
+        }
+      } catch (err) {
+        console.error('Failed to fetch dismissed recommendations:', err)
+      }
+    }
+    fetchDismissed()
+  }, [projectId])
+
+  // Handler to dismiss a recommendation
+  const handleDismiss = async (key: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/recommendations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recommendationKey: key }),
+      })
+      if (res.ok) {
+        setDismissedKeys((prev) => new Set([...prev, key]))
+      }
+    } catch (err) {
+      console.error('Failed to dismiss recommendation:', err)
+    }
+  }
+
+  // Handler to restore a recommendation
+  const handleRestore = async (key: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/recommendations?key=${encodeURIComponent(key)}`, {
+        method: 'DELETE',
+      })
+      if (res.ok) {
+        setDismissedKeys((prev) => {
+          const next = new Set(prev)
+          next.delete(key)
+          return next
+        })
+      }
+    } catch (err) {
+      console.error('Failed to restore recommendation:', err)
+    }
+  }
 
   // Collect all recommendations from all phases
   const allRecommendations = phases.flatMap((phase) => {
     const recs = parseJSON(phase.recommendations, []) as Recommendation[]
-    return recs.map((rec, idx) => ({
-      ...rec,
-      phaseName: phase.phaseName,
-      phaseScore: phase.score,
-      phaseMaxScore: phase.maxScore,
-      id: `${phase.id}-${idx}`,
-    }))
+    return recs.map((rec, idx) => {
+      const key = `${phase.phaseName}-${rec.title.slice(0, 50)}`
+      return {
+        ...rec,
+        phaseName: phase.phaseName,
+        phaseScore: phase.score,
+        phaseMaxScore: phase.maxScore,
+        id: `${phase.id}-${idx}`,
+        key,
+        isDismissed: dismissedKeys.has(key),
+      }
+    })
   })
 
   // Sort recommendations
@@ -1077,15 +1136,20 @@ function RecommendationsTab({
     return a.phaseName.localeCompare(b.phaseName)
   })
 
-  // Filter recommendations
-  const filteredRecommendations = filterPhase === 'all'
-    ? sortedRecommendations
-    : sortedRecommendations.filter((r) => r.phaseName === filterPhase)
+  // Filter recommendations (by phase and dismissed status)
+  const filteredRecommendations = sortedRecommendations.filter((r) => {
+    if (!showDismissed && r.isDismissed) return false
+    if (filterPhase !== 'all' && r.phaseName !== filterPhase) return false
+    return true
+  })
 
   // Group by priority
-  const highPriority = filteredRecommendations.filter((r) => r.priority === 'high')
-  const mediumPriority = filteredRecommendations.filter((r) => r.priority === 'medium')
-  const lowPriority = filteredRecommendations.filter((r) => !r.priority || r.priority === 'low')
+  const highPriority = filteredRecommendations.filter((r) => r.priority === 'high' && !r.isDismissed)
+  const mediumPriority = filteredRecommendations.filter((r) => r.priority === 'medium' && !r.isDismissed)
+  const lowPriority = filteredRecommendations.filter((r) => (!r.priority || r.priority === 'low') && !r.isDismissed)
+  const dismissed = filteredRecommendations.filter((r) => r.isDismissed)
+  
+  const activeCount = highPriority.length + mediumPriority.length + lowPriority.length
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text)
@@ -1105,6 +1169,22 @@ function RecommendationsTab({
     )
   }
 
+  if (activeCount === 0 && dismissedKeys.size > 0) {
+    return (
+      <div className="text-center py-12">
+        <CheckCircle className="h-16 w-16 text-emerald-400 mx-auto mb-4" />
+        <h3 className="text-xl font-semibold mb-2">All Done! 🎉</h3>
+        <p className="text-slate-400 mb-4">You&apos;ve addressed all {dismissedKeys.size} recommendations.</p>
+        <button
+          onClick={() => setShowDismissed(true)}
+          className="text-indigo-400 hover:text-indigo-300 text-sm"
+        >
+          Show completed items ({dismissedKeys.size})
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div>
       {/* Header */}
@@ -1114,9 +1194,14 @@ function RecommendationsTab({
             <ClipboardList className="h-6 w-6 text-indigo-400" />
             All Recommendations
           </h2>
-          <p className="text-slate-400 text-sm mt-1">{allRecommendations.length} total improvements</p>
+          <p className="text-slate-400 text-sm mt-1">
+            {activeCount} remaining
+            {dismissedKeys.size > 0 && (
+              <span className="text-emerald-400 ml-2">• {dismissedKeys.size} completed</span>
+            )}
+          </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as 'priority' | 'phase')}
@@ -1135,6 +1220,18 @@ function RecommendationsTab({
               <option key={phase} value={phase}>{phase}</option>
             ))}
           </select>
+          {dismissedKeys.size > 0 && (
+            <button
+              onClick={() => setShowDismissed(!showDismissed)}
+              className={`px-3 py-2 rounded-lg text-sm transition-colors ${
+                showDismissed 
+                  ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-600/30'
+                  : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              {showDismissed ? 'Hide' : 'Show'} Completed ({dismissedKeys.size})
+            </button>
+          )}
         </div>
       </div>
 
@@ -1152,6 +1249,8 @@ function RecommendationsTab({
                 rec={rec}
                 copiedId={copiedId}
                 onCopy={copyToClipboard}
+                onDismiss={handleDismiss}
+                onRestore={handleRestore}
               />
             ))}
           </div>
@@ -1172,6 +1271,8 @@ function RecommendationsTab({
                 rec={rec}
                 copiedId={copiedId}
                 onCopy={copyToClipboard}
+                onDismiss={handleDismiss}
+                onRestore={handleRestore}
               />
             ))}
           </div>
@@ -1192,6 +1293,30 @@ function RecommendationsTab({
                 rec={rec}
                 copiedId={copiedId}
                 onCopy={copyToClipboard}
+                onDismiss={handleDismiss}
+                onRestore={handleRestore}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Completed/Dismissed */}
+      {showDismissed && dismissed.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-slate-400">
+            <CheckCircle className="h-5 w-5" />
+            Completed ({dismissed.length})
+          </h3>
+          <div className="space-y-4">
+            {dismissed.map((rec) => (
+              <RecommendationCard
+                key={rec.id}
+                rec={rec}
+                copiedId={copiedId}
+                onCopy={copyToClipboard}
+                onDismiss={handleDismiss}
+                onRestore={handleRestore}
               />
             ))}
           </div>
@@ -1205,37 +1330,63 @@ function RecommendationsTab({
 function RecommendationCard({ 
   rec, 
   copiedId, 
-  onCopy 
+  onCopy,
+  onDismiss,
+  onRestore,
 }: { 
-  rec: Recommendation & { phaseName: string; id: string }
+  rec: Recommendation & { phaseName: string; id: string; key: string; isDismissed: boolean }
   copiedId: string | null
-  onCopy: (text: string, id: string) => void 
+  onCopy: (text: string, id: string) => void
+  onDismiss: (key: string) => void
+  onRestore: (key: string) => void
 }) {
+  const [dismissing, setDismissing] = useState(false)
+
+  const handleToggle = async () => {
+    setDismissing(true)
+    if (rec.isDismissed) {
+      await onRestore(rec.key)
+    } else {
+      await onDismiss(rec.key)
+    }
+    setDismissing(false)
+  }
+
   return (
-    <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+    <div className={`bg-slate-800/50 border rounded-xl p-5 transition-all ${
+      rec.isDismissed 
+        ? 'border-emerald-600/30 opacity-60'
+        : 'border-slate-700'
+    }`}>
       <div className="flex items-start justify-between gap-4 mb-3">
-        <div>
-          <h4 className="font-semibold text-white mb-1">{rec.title}</h4>
+        <div className="flex-1">
+          <h4 className={`font-semibold mb-1 ${rec.isDismissed ? 'text-slate-400 line-through' : 'text-white'}`}>
+            {rec.title}
+          </h4>
           <span className="text-xs px-2 py-0.5 bg-slate-700 rounded text-slate-400">
             {rec.phaseName}
           </span>
         </div>
-        <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-          rec.priority === 'high' 
-            ? 'bg-red-900/30 text-red-400'
-            : rec.priority === 'medium'
-            ? 'bg-amber-900/30 text-amber-400'
-            : 'bg-emerald-900/30 text-emerald-400'
-        }`}>
-          {rec.priority || 'low'} priority
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+            rec.isDismissed
+              ? 'bg-emerald-900/30 text-emerald-400'
+              : rec.priority === 'high' 
+              ? 'bg-red-900/30 text-red-400'
+              : rec.priority === 'medium'
+              ? 'bg-amber-900/30 text-amber-400'
+              : 'bg-emerald-900/30 text-emerald-400'
+          }`}>
+            {rec.isDismissed ? 'completed' : `${rec.priority || 'low'} priority`}
+          </span>
+        </div>
       </div>
       
-      {rec.description && (
+      {rec.description && !rec.isDismissed && (
         <p className="text-sm text-slate-400 mb-3">{rec.description}</p>
       )}
       
-      {rec.actionable && (
+      {rec.actionable && !rec.isDismissed && (
         <div className="bg-slate-900/50 rounded-lg p-3 mt-3">
           <div className="flex items-start justify-between gap-2">
             <p className="text-sm text-indigo-300">
@@ -1256,6 +1407,28 @@ function RecommendationCard({
           </div>
         </div>
       )}
+
+      {/* Mark as Done / Restore button */}
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <button
+          onClick={handleToggle}
+          disabled={dismissing}
+          className={`text-sm font-medium transition-colors flex items-center gap-2 ${
+            rec.isDismissed
+              ? 'text-slate-400 hover:text-white'
+              : 'text-emerald-400 hover:text-emerald-300'
+          }`}
+        >
+          {dismissing ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : rec.isDismissed ? (
+            <X className="h-4 w-4" />
+          ) : (
+            <Check className="h-4 w-4" />
+          )}
+          {rec.isDismissed ? 'Restore' : 'Mark as Done'}
+        </button>
+      </div>
     </div>
   )
 }

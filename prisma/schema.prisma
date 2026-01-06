@@ -58,8 +58,20 @@ model Project {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   scans         Scan[]
+  dismissedRecommendations DismissedRecommendation[]
 
   @@index([userId])
+}
+
+model DismissedRecommendation {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  recommendationKey String   // Unique identifier: phaseName + hash of recommendation title
+  dismissedAt       DateTime @default(now())
+
+  @@unique([projectId, recommendationKey])
+  @@index([projectId])
 }
 
 model Scan {

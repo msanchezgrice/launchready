@@ -143,41 +143,26 @@ export async function POST(request: NextRequest, { params }: { params: Params })
       }
     }
 
-    // Run visual scan (screenshots, mobile responsiveness) - async to not block response
-    // We'll update the scan record after it completes
-    const runVisualScanInBackground = async (scanId: string) => {
-      console.log(`[Scan] Starting async visual scan for ${project.url}`)
-      try {
-        const result = await runVisualScan(project.url)
-        if (result.success) {
-          console.log(`[Scan] Visual scan complete, updating scan ${scanId}`)
-          // Update the scan with visual results (screenshots are now Vercel Blob URLs)
-          const existingMetadata = await prisma.scan.findUnique({
-            where: { id: scanId },
-            select: { metadata: true }
-          })
-          await prisma.scan.update({
-            where: { id: scanId },
-            data: {
-              metadata: JSON.parse(JSON.stringify({
-                ...(existingMetadata?.metadata as object || {}),
-                visualScan: {
-                  success: result.success,
-                  hasDesktopScreenshot: !!result.screenshots.desktopUrl,
-                  hasMobileScreenshot: !!result.screenshots.mobileUrl,
-                  desktopScreenshotUrl: result.screenshots.desktopUrl,
-                  mobileScreenshotUrl: result.screenshots.mobileUrl,
-                  findings: result.findings,
-                  recommendations: result.recommendations,
-                  metrics: result.metrics,
-                },
-              }))
-            }
-          })
+    // Run visual scan (screenshots, mobile responsiveness)
+    // Must await this or Vercel will terminate the function before it completes
+    let visualScanResult: { desktopUrl?: string; mobileUrl?: string; metrics?: object; findings?: object[]; recommendations?: object[] } | null = null
+    console.log(`[Scan] Starting visual scan for ${project.url}`)
+    try {
+      const result = await runVisualScan(project.url)
+      if (result.success) {
+        console.log(`[Scan] Visual scan complete!`)
+        visualScanResult = {
+          desktopUrl: result.screenshots.desktopUrl,
+          mobileUrl: result.screenshots.mobileUrl,
+          metrics: result.metrics,
+          findings: result.findings,
+          recommendations: result.recommendations,
         }
-      } catch (error) {
-        console.error('[Scan] Visual scan failed:', error)
+      } else {
+        console.log(`[Scan] Visual scan failed: ${result.error}`)
       }
+    } catch (error) {
+      console.error('[Scan] Visual scan error:', error)
     }
 
     // Build metadata object
@@ -189,6 +174,18 @@ export async function POST(request: NextRequest, { params }: { params: Params })
         findings: githubScanResult.findings,
         recommendations: githubScanResult.recommendations,
         repoFound: githubScanResult.repoFound,
+      }
+    }
+    if (visualScanResult) {
+      metadata.visualScan = {
+        success: true,
+        hasDesktopScreenshot: !!visualScanResult.desktopUrl,
+        hasMobileScreenshot: !!visualScanResult.mobileUrl,
+        desktopScreenshotUrl: visualScanResult.desktopUrl,
+        mobileScreenshotUrl: visualScanResult.mobileUrl,
+        findings: visualScanResult.findings,
+        recommendations: visualScanResult.recommendations,
+        metrics: visualScanResult.metrics,
       }
     }
 
@@ -290,10 +287,6 @@ export async function POST(request: NextRequest, { params }: { params: Params })
       },
     })
 
-    // Start visual scan in background (don't await - fire and forget)
-    runVisualScanInBackground(scan.id).catch(err => {
-      console.error('[Scan] Background visual scan error:', err)
-    })
 
     // Update user's lastScan timestamp
     await prisma.user.update({
@@ -304,8 +297,8 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     return NextResponse.json({
       scan,
       githubScan: githubScanResult,
-      visualScanQueued: true,  // Visual scan runs in background
-      message: 'Scan completed successfully. Visual analysis running in background.',
+      visualScan: visualScanResult,
+      message: 'Scan completed successfully.',
     })
   } catch (error) {
     console.error('Error scanning project:', error)

@@ -1,15 +1,17 @@
 /**
  * Visual Scanner - Design and UX Analysis
  * Uses Playwright/Browserless to capture screenshots and analyze visual quality
+ * Screenshots stored in Vercel Blob storage
  */
 
-import { chromium, Browser, Page } from 'playwright-core'
+import { chromium, Browser } from 'playwright-core'
+import { put } from '@vercel/blob'
 
 export interface VisualScanResult {
   success: boolean
   screenshots: {
-    desktop?: string  // Base64 encoded
-    mobile?: string   // Base64 encoded
+    desktopUrl?: string  // Vercel Blob URL
+    mobileUrl?: string   // Vercel Blob URL
   }
   findings: VisualFinding[]
   recommendations: VisualRecommendation[]
@@ -72,7 +74,7 @@ export async function runVisualScan(url: string): Promise<VisualScanResult> {
   const findings: VisualFinding[] = []
   const recommendations: VisualRecommendation[] = []
   const metrics: VisualMetrics = {}
-  const screenshots: { desktop?: string; mobile?: string } = {}
+  const screenshots: { desktopUrl?: string; mobileUrl?: string } = {}
 
   try {
     const browserlessUrl = `wss://chrome.browserless.io?token=${browserlessApiKey}`
@@ -90,11 +92,25 @@ export async function runVisualScan(url: string): Promise<VisualScanResult> {
     
     console.log('[Visual Scanner] Connected!')
 
+    // Generate unique filename based on URL
+    const hostname = new URL(url).hostname.replace(/[^a-zA-Z0-9]/g, '-')
+    const timestamp = Date.now()
+
     // Desktop scan
     console.log('[Visual Scanner] Capturing desktop screenshot...')
     const desktopResult = await captureViewport(browser, url, VIEWPORTS.desktop, 'desktop')
-    if (desktopResult.screenshot) {
-      screenshots.desktop = desktopResult.screenshot
+    if (desktopResult.screenshotBuffer) {
+      // Upload to Vercel Blob
+      try {
+        const blob = await put(`screenshots/${hostname}-desktop-${timestamp}.jpg`, desktopResult.screenshotBuffer, {
+          access: 'public',
+          contentType: 'image/jpeg',
+        })
+        screenshots.desktopUrl = blob.url
+        console.log('[Visual Scanner] Desktop screenshot uploaded:', blob.url)
+      } catch (uploadError) {
+        console.error('[Visual Scanner] Failed to upload desktop screenshot:', uploadError)
+      }
     }
     findings.push(...desktopResult.findings)
     Object.assign(metrics, desktopResult.metrics)
@@ -102,8 +118,18 @@ export async function runVisualScan(url: string): Promise<VisualScanResult> {
     // Mobile scan
     console.log('[Visual Scanner] Capturing mobile screenshot...')
     const mobileResult = await captureViewport(browser, url, VIEWPORTS.mobile, 'mobile')
-    if (mobileResult.screenshot) {
-      screenshots.mobile = mobileResult.screenshot
+    if (mobileResult.screenshotBuffer) {
+      // Upload to Vercel Blob
+      try {
+        const blob = await put(`screenshots/${hostname}-mobile-${timestamp}.jpg`, mobileResult.screenshotBuffer, {
+          access: 'public',
+          contentType: 'image/jpeg',
+        })
+        screenshots.mobileUrl = blob.url
+        console.log('[Visual Scanner] Mobile screenshot uploaded:', blob.url)
+      } catch (uploadError) {
+        console.error('[Visual Scanner] Failed to upload mobile screenshot:', uploadError)
+      }
     }
     findings.push(...mobileResult.findings)
 
@@ -203,7 +229,7 @@ async function captureViewport(
   viewport: { width: number; height: number },
   type: 'desktop' | 'mobile'
 ): Promise<{
-  screenshot?: string
+  screenshotBuffer?: Buffer
   findings: VisualFinding[]
   metrics: Partial<VisualMetrics>
 }> {
@@ -366,18 +392,16 @@ async function captureViewport(
       }
     }
 
-    // Capture screenshot
+    // Capture screenshot as buffer (for Vercel Blob upload)
     const screenshotBuffer = await page.screenshot({
       type: 'jpeg',
       quality: 80,
       fullPage: false  // Just viewport, not full page
     })
-    
-    const screenshot = screenshotBuffer.toString('base64')
 
     await context.close()
 
-    return { screenshot, findings, metrics }
+    return { screenshotBuffer: Buffer.from(screenshotBuffer), findings, metrics }
 
   } catch (error) {
     console.error(`[Visual Scanner] Error capturing ${type} viewport:`, error)
@@ -394,9 +418,6 @@ export async function runVisualScanAsync(
   projectId: string,
   scanId: string
 ): Promise<{ queued: boolean; error?: string }> {
-  // For now, just run synchronously but don't block
-  // In a real implementation, this would add to a queue
-  
   console.log(`[Visual Scanner] Queuing async visual scan for ${url}`)
   
   // Run in background (fire and forget)
@@ -420,14 +441,14 @@ export async function runVisualScanAsync(
                 ...(existingScan?.metadata as object || {}),
                 visualScan: {
                   success: result.success,
-                  hasDesktopScreenshot: !!result.screenshots.desktop,
-                  hasMobileScreenshot: !!result.screenshots.mobile,
+                  hasDesktopScreenshot: !!result.screenshots.desktopUrl,
+                  hasMobileScreenshot: !!result.screenshots.mobileUrl,
                   findings: result.findings,
                   recommendations: result.recommendations,
                   metrics: result.metrics,
-                  // Store screenshot URLs or base64 (for now, we'll store truncated base64 ref)
-                  desktopScreenshot: result.screenshots.desktop?.substring(0, 100) + '...[truncated]',
-                  mobileScreenshot: result.screenshots.mobile?.substring(0, 100) + '...[truncated]',
+                  // Store Vercel Blob URLs
+                  desktopScreenshotUrl: result.screenshots.desktopUrl,
+                  mobileScreenshotUrl: result.screenshots.mobileUrl,
                 }
               }))
             }

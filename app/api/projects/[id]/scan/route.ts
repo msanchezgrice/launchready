@@ -3,7 +3,7 @@ import { currentUser } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
 import { scanProject, ScanPhaseResult } from '@/lib/scanner'
 import { scanGitHubRepo, GitHubScanResult } from '@/lib/github-scanner'
-import { runVisualScan, VisualScanResult } from '@/lib/visual-scanner'
+import { runVisualScan } from '@/lib/visual-scanner'
 import { canScan, getPlanLimits } from '@/lib/stripe'
 import { isRedisConfigured } from '@/lib/redis'
 import { addScanJob } from '@/lib/scan-queue'
@@ -145,14 +145,13 @@ export async function POST(request: NextRequest, { params }: { params: Params })
 
     // Run visual scan (screenshots, mobile responsiveness) - async to not block response
     // We'll update the scan record after it completes
-    let visualScanResult: VisualScanResult | null = null
-    const runVisualScanAsync = async (scanId: string) => {
+    const runVisualScanInBackground = async (scanId: string) => {
       console.log(`[Scan] Starting async visual scan for ${project.url}`)
       try {
         const result = await runVisualScan(project.url)
         if (result.success) {
           console.log(`[Scan] Visual scan complete, updating scan ${scanId}`)
-          // Update the scan with visual results
+          // Update the scan with visual results (screenshots are now Vercel Blob URLs)
           const existingMetadata = await prisma.scan.findUnique({
             where: { id: scanId },
             select: { metadata: true }
@@ -164,10 +163,10 @@ export async function POST(request: NextRequest, { params }: { params: Params })
                 ...(existingMetadata?.metadata as object || {}),
                 visualScan: {
                   success: result.success,
-                  hasDesktopScreenshot: !!result.screenshots.desktop,
-                  hasMobileScreenshot: !!result.screenshots.mobile,
-                  desktopScreenshot: result.screenshots.desktop,
-                  mobileScreenshot: result.screenshots.mobile,
+                  hasDesktopScreenshot: !!result.screenshots.desktopUrl,
+                  hasMobileScreenshot: !!result.screenshots.mobileUrl,
+                  desktopScreenshotUrl: result.screenshots.desktopUrl,
+                  mobileScreenshotUrl: result.screenshots.mobileUrl,
                   findings: result.findings,
                   recommendations: result.recommendations,
                   metrics: result.metrics,
@@ -193,17 +192,91 @@ export async function POST(request: NextRequest, { params }: { params: Params })
       }
     }
 
+    // Enhance phase scores based on GitHub scan findings
+    // This merges GitHub-detected analytics into the Analytics phase
+    const enhancedPhases = scanResult.phases.map((phase: ScanPhaseResult) => {
+      if (phase.phaseName === 'Analytics' && githubScanResult) {
+        // Check if GitHub found analytics that weren't detected in the live page
+        const githubAnalyticsFindings = githubScanResult.findings.filter(
+          (f: { message: string }) => 
+            f.message.toLowerCase().includes('analytics') ||
+            f.message.toLowerCase().includes('posthog') ||
+            f.message.toLowerCase().includes('google analytics') ||
+            f.message.toLowerCase().includes('plausible') ||
+            f.message.toLowerCase().includes('mixpanel') ||
+            f.message.toLowerCase().includes('segment') ||
+            f.message.toLowerCase().includes('amplitude')
+        )
+        
+        if (githubAnalyticsFindings.length > 0 && phase.score < 50) {
+          // Boost the analytics score if GitHub found analytics but page scan didn't
+          const boost = Math.min(40, githubAnalyticsFindings.length * 20)
+          const newScore = Math.min(phase.maxScore, phase.score + boost)
+          
+          return {
+            ...phase,
+            score: newScore,
+            findings: [
+              ...phase.findings,
+              ...githubAnalyticsFindings.map((f: { message: string; details?: string }) => ({
+                type: 'success' as const,
+                message: `GitHub: ${f.message}`,
+                details: f.details || 'Detected in source code'
+              }))
+            ]
+          }
+        }
+      }
+      
+      // Also enhance Monitoring phase with GitHub error tracking findings
+      if (phase.phaseName === 'Monitoring' && githubScanResult) {
+        const githubMonitoringFindings = githubScanResult.findings.filter(
+          (f: { message: string }) => 
+            f.message.toLowerCase().includes('error tracking') ||
+            f.message.toLowerCase().includes('sentry') ||
+            f.message.toLowerCase().includes('bugsnag') ||
+            f.message.toLowerCase().includes('logrocket') ||
+            f.message.toLowerCase().includes('session recording')
+        )
+        
+        if (githubMonitoringFindings.length > 0 && phase.score < 50) {
+          const boost = Math.min(40, githubMonitoringFindings.length * 20)
+          const newScore = Math.min(phase.maxScore, phase.score + boost)
+          
+          return {
+            ...phase,
+            score: newScore,
+            findings: [
+              ...phase.findings,
+              ...githubMonitoringFindings.map((f: { message: string; details?: string }) => ({
+                type: 'success' as const,
+                message: `GitHub: ${f.message}`,
+                details: f.details || 'Detected in source code'
+              }))
+            ]
+          }
+        }
+      }
+      
+      return phase
+    })
+
+    // Recalculate total score
+    const totalScore = enhancedPhases.reduce((sum: number, phase: ScanPhaseResult) => sum + phase.score, 0)
+    const maxScore = enhancedPhases.reduce((sum: number, phase: ScanPhaseResult) => sum + phase.maxScore, 0)
+    const enhancedScore = Math.round((totalScore / maxScore) * 100)
+
     // Save scan results to database
     const scan = await prisma.scan.create({
       data: {
         projectId: project.id,
-        score: scanResult.score,
+        score: enhancedScore,
         trigger: 'manual',
         metadata: Object.keys(metadata).length > 0 
           ? JSON.parse(JSON.stringify(metadata)) 
           : undefined,
         phases: {
-          create: scanResult.phases.map((phase: ScanPhaseResult) => ({
+          create: enhancedPhases.map((phase: ScanPhaseResult) => ({
             phaseName: phase.phaseName,
             score: phase.score,
             maxScore: phase.maxScore,
@@ -218,7 +291,7 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     })
 
     // Start visual scan in background (don't await - fire and forget)
-    runVisualScanAsync(scan.id).catch(err => {
+    runVisualScanInBackground(scan.id).catch(err => {
       console.error('[Scan] Background visual scan error:', err)
     })
 

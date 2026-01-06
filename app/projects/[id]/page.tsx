@@ -107,8 +107,8 @@ interface VisualScanResult {
   success: boolean
   hasDesktopScreenshot?: boolean
   hasMobileScreenshot?: boolean
-  desktopScreenshot?: string  // Base64
-  mobileScreenshot?: string   // Base64
+  desktopScreenshotUrl?: string  // Vercel Blob URL
+  mobileScreenshotUrl?: string   // Vercel Blob URL
   findings: Array<{
     type: 'success' | 'warning' | 'error'
     category: string
@@ -776,29 +776,33 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   </div>
 
                   {/* Screenshots */}
-                  {(visualScan.desktopScreenshot || visualScan.mobileScreenshot) && (
+                  {(visualScan.desktopScreenshotUrl || visualScan.mobileScreenshotUrl) && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                      {visualScan.desktopScreenshot && (
+                      {visualScan.desktopScreenshotUrl && (
                         <div className="space-y-2">
                           <p className="text-sm text-slate-400 flex items-center gap-1">
                             <Monitor className="h-4 w-4" /> Desktop (1280x720)
                           </p>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img 
-                            src={`data:image/jpeg;base64,${visualScan.desktopScreenshot}`}
+                            src={visualScan.desktopScreenshotUrl}
                             alt="Desktop screenshot"
                             className="rounded-lg border border-slate-600 w-full"
+                            loading="lazy"
                           />
                         </div>
                       )}
-                      {visualScan.mobileScreenshot && (
+                      {visualScan.mobileScreenshotUrl && (
                         <div className="space-y-2">
                           <p className="text-sm text-slate-400 flex items-center gap-1">
                             <Smartphone className="h-4 w-4" /> Mobile (375x667)
                           </p>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img 
-                            src={`data:image/jpeg;base64,${visualScan.mobileScreenshot}`}
+                            src={visualScan.mobileScreenshotUrl}
                             alt="Mobile screenshot"
                             className="rounded-lg border border-slate-600 w-full max-w-[200px]"
+                            loading="lazy"
                           />
                         </div>
                       )}

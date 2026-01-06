@@ -273,12 +273,72 @@ export function startScanWorker(concurrency: number = 2): void {
           orderBy: { scannedAt: 'desc' },
         });
         previousScore = previousScan?.score;
+
+        // Enhance phase scores based on GitHub scan findings
+        const enhancedPhases = scanResult.phases.map((phase) => {
+          if (phase.phaseName === 'Analytics' && githubScanResult) {
+            const githubAnalyticsFindings = githubScanResult.findings.filter(
+              (f) => 
+                f.message.toLowerCase().includes('analytics') ||
+                f.message.toLowerCase().includes('posthog') ||
+                f.message.toLowerCase().includes('google analytics') ||
+                f.message.toLowerCase().includes('plausible')
+            );
+            
+            if (githubAnalyticsFindings.length > 0 && phase.score < 50) {
+              const boost = Math.min(40, githubAnalyticsFindings.length * 20);
+              return {
+                ...phase,
+                score: Math.min(phase.maxScore, phase.score + boost),
+                findings: [
+                  ...phase.findings,
+                  ...githubAnalyticsFindings.map((f) => ({
+                    type: 'success' as const,
+                    message: `GitHub: ${f.message}`,
+                    details: f.details || 'Detected in source code'
+                  }))
+                ]
+              };
+            }
+          }
+          
+          if (phase.phaseName === 'Monitoring' && githubScanResult) {
+            const githubMonitoringFindings = githubScanResult.findings.filter(
+              (f) => 
+                f.message.toLowerCase().includes('error tracking') ||
+                f.message.toLowerCase().includes('sentry')
+            );
+            
+            if (githubMonitoringFindings.length > 0 && phase.score < 50) {
+              const boost = Math.min(40, githubMonitoringFindings.length * 20);
+              return {
+                ...phase,
+                score: Math.min(phase.maxScore, phase.score + boost),
+                findings: [
+                  ...phase.findings,
+                  ...githubMonitoringFindings.map((f) => ({
+                    type: 'success' as const,
+                    message: `GitHub: ${f.message}`,
+                    details: f.details || 'Detected in source code'
+                  }))
+                ]
+              };
+            }
+          }
+          
+          return phase;
+        });
+
+        // Recalculate total score
+        const totalScore = enhancedPhases.reduce((sum, phase) => sum + phase.score, 0);
+        const maxScore = enhancedPhases.reduce((sum, phase) => sum + phase.maxScore, 0);
+        const enhancedScore = Math.round((totalScore / maxScore) * 100);
         
         // Create scan record
         const scan = await prisma.scan.create({
           data: {
             projectId,
-            score: scanResult.score,
+            score: enhancedScore,
             trigger,
             metadata: JSON.parse(JSON.stringify({
               duration,
@@ -295,7 +355,7 @@ export function startScanWorker(concurrency: number = 2): void {
               } : {}),
             })),
             phases: {
-              create: scanResult.phases.map((phase) => ({
+              create: enhancedPhases.map((phase) => ({
                 phaseName: phase.phaseName,
                 score: phase.score,
                 maxScore: phase.maxScore,

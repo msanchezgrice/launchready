@@ -1523,7 +1523,7 @@ function ProjectSettingsTab({
         )}
       </div>
 
-      {/* Auto-Scan Settings (placeholder) */}
+      {/* Auto-Scan Settings - Upgrade prompt for free users */}
       <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <RefreshCw className="h-5 w-5" />

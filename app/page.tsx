@@ -99,11 +99,6 @@ const pricingPlans = [
   },
 ];
 
-// TODO: Add real testimonials from actual users
-// const testimonials = [
-//   { quote: "...", author: "Real User", role: "Real Company" },
-// ];
-
 export default function Home() {
   const [url, setUrl] = useState('');
   const [scanning, setScanning] = useState(false);
@@ -454,8 +449,6 @@ export default function Home() {
           <div className="container mx-auto px-4">
             <div className="border-t border-slate-700/50" />
           </div>
-
-          {/* TODO: Add Testimonials Section once we have real user testimonials */}
 
           {/* Pricing Section */}
           <section className="py-16">

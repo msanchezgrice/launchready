@@ -14,7 +14,7 @@ export interface VercelScanResult {
 
 export interface VercelFinding {
   type: 'success' | 'warning' | 'error'
-  category: 'deployment' | 'env' | 'domain' | 'performance' | 'general'
+  category: 'deployment' | 'env' | 'domain' | 'performance' | 'general' | 'analytics' | 'services'
   message: string
   details?: string
 }
@@ -24,6 +24,112 @@ export interface VercelRecommendation {
   title: string
   description: string
   actionable: string
+}
+
+// Environment variable patterns for service detection
+const SERVICE_ENV_PATTERNS = {
+  // Analytics
+  analytics: {
+    'PostHog': ['POSTHOG', 'NEXT_PUBLIC_POSTHOG'],
+    'Google Analytics': ['GA_TRACKING', 'GOOGLE_ANALYTICS', 'GA_ID', 'GA4_', 'NEXT_PUBLIC_GA', 'GTAG'],
+    'Plausible': ['PLAUSIBLE', 'NEXT_PUBLIC_PLAUSIBLE'],
+    'Mixpanel': ['MIXPANEL', 'NEXT_PUBLIC_MIXPANEL'],
+    'Segment': ['SEGMENT', 'NEXT_PUBLIC_SEGMENT'],
+    'Amplitude': ['AMPLITUDE', 'NEXT_PUBLIC_AMPLITUDE'],
+    'Vercel Analytics': ['VERCEL_ANALYTICS'],
+  },
+  // Error tracking
+  errorTracking: {
+    'Sentry': ['SENTRY', 'NEXT_PUBLIC_SENTRY'],
+    'Bugsnag': ['BUGSNAG'],
+    'Rollbar': ['ROLLBAR'],
+    'Datadog': ['DATADOG', 'DD_'],
+  },
+  // Session recording
+  sessionRecording: {
+    'LogRocket': ['LOGROCKET', 'NEXT_PUBLIC_LOGROCKET'],
+    'FullStory': ['FULLSTORY', 'NEXT_PUBLIC_FULLSTORY'],
+    'Hotjar': ['HOTJAR', 'NEXT_PUBLIC_HOTJAR'],
+    'Clarity': ['CLARITY', 'NEXT_PUBLIC_CLARITY'],
+  },
+  // Payment
+  payment: {
+    'Stripe': ['STRIPE', 'NEXT_PUBLIC_STRIPE'],
+    'Paddle': ['PADDLE'],
+    'LemonSqueezy': ['LEMON_SQUEEZY', 'LEMONSQUEEZY'],
+  },
+  // Email
+  email: {
+    'Resend': ['RESEND'],
+    'SendGrid': ['SENDGRID'],
+    'Postmark': ['POSTMARK'],
+    'Mailgun': ['MAILGUN'],
+  },
+  // Auth
+  auth: {
+    'Clerk': ['CLERK', 'NEXT_PUBLIC_CLERK'],
+    'Auth0': ['AUTH0'],
+    'NextAuth': ['NEXTAUTH'],
+    'Supabase Auth': ['SUPABASE_ANON', 'NEXT_PUBLIC_SUPABASE'],
+  },
+  // Database
+  database: {
+    'PostgreSQL': ['DATABASE_URL', 'POSTGRES', 'PG_'],
+    'Supabase': ['SUPABASE', 'NEXT_PUBLIC_SUPABASE'],
+    'PlanetScale': ['PLANETSCALE', 'DATABASE_URL'],
+    'Neon': ['NEON', 'DATABASE_URL'],
+    'MongoDB': ['MONGODB', 'MONGO_'],
+    'Redis': ['REDIS', 'UPSTASH'],
+  },
+  // AI/ML
+  ai: {
+    'OpenAI': ['OPENAI'],
+    'Anthropic': ['ANTHROPIC', 'CLAUDE'],
+    'Replicate': ['REPLICATE'],
+    'Hugging Face': ['HUGGINGFACE', 'HF_'],
+  },
+}
+
+/**
+ * Detect services from environment variable keys
+ */
+function detectServicesFromEnvVars(
+  envVars: Array<{ key: string; target?: string[] }>
+): {
+  analytics: string[]
+  errorTracking: string[]
+  sessionRecording: string[]
+  payment: string[]
+  email: string[]
+  auth: string[]
+  database: string[]
+  ai: string[]
+} {
+  const detected = {
+    analytics: [] as string[],
+    errorTracking: [] as string[],
+    sessionRecording: [] as string[],
+    payment: [] as string[],
+    email: [] as string[],
+    auth: [] as string[],
+    database: [] as string[],
+    ai: [] as string[],
+  }
+
+  const varKeys = envVars.map(e => e.key.toUpperCase())
+
+  for (const [category, services] of Object.entries(SERVICE_ENV_PATTERNS)) {
+    for (const [serviceName, patterns] of Object.entries(services)) {
+      const hasService = varKeys.some(key =>
+        patterns.some(pattern => key.includes(pattern.toUpperCase()))
+      )
+      if (hasService && !detected[category as keyof typeof detected].includes(serviceName)) {
+        detected[category as keyof typeof detected].push(serviceName)
+      }
+    }
+  }
+
+  return detected
 }
 
 /**
@@ -141,31 +247,137 @@ export async function scanVercelProject(
           })
         }
 
-        // Check for common required vars
-        const varKeys = envVars.map((e: { key: string }) => e.key.toLowerCase())
-        const hasDatabase = varKeys.some((k: string) => 
-          k.includes('database') || k.includes('postgres') || k.includes('mysql')
-        )
-        const hasAuth = varKeys.some((k: string) => 
-          k.includes('auth') || k.includes('clerk') || k.includes('nextauth')
-        )
+        // Detect services from environment variables
+        const detectedServices = detectServicesFromEnvVars(envVars)
 
-        if (hasDatabase) {
+        // Analytics detection
+        if (detectedServices.analytics.length > 0) {
+          score += 10
+          findings.push({
+            type: 'success',
+            category: 'analytics',
+            message: `Analytics configured: ${detectedServices.analytics.join(', ')}`,
+            details: 'Analytics service environment variables detected'
+          })
+        } else {
+          recommendations.push({
+            priority: 'high',
+            title: 'Add analytics tracking',
+            description: 'No analytics service detected in environment variables',
+            actionable: 'Add NEXT_PUBLIC_POSTHOG_KEY or GA_TRACKING_ID to track user behavior'
+          })
+        }
+
+        // Error tracking detection
+        if (detectedServices.errorTracking.length > 0) {
+          score += 10
+          findings.push({
+            type: 'success',
+            category: 'services',
+            message: `Error tracking: ${detectedServices.errorTracking.join(', ')}`,
+            details: 'Production errors will be captured'
+          })
+        } else {
+          recommendations.push({
+            priority: 'high',
+            title: 'Add error tracking',
+            description: 'No error tracking service detected',
+            actionable: 'Add SENTRY_DSN for production error monitoring'
+          })
+        }
+
+        // Session recording detection
+        if (detectedServices.sessionRecording.length > 0) {
           score += 5
           findings.push({
             type: 'success',
-            category: 'env',
-            message: 'Database configuration detected'
+            category: 'services',
+            message: `Session recording: ${detectedServices.sessionRecording.join(', ')}`,
+            details: 'User sessions can be replayed for debugging'
           })
         }
-        if (hasAuth) {
+
+        // Payment detection
+        if (detectedServices.payment.length > 0) {
           score += 5
           findings.push({
             type: 'success',
-            category: 'env',
-            message: 'Authentication configuration detected'
+            category: 'services',
+            message: `Payment processing: ${detectedServices.payment.join(', ')}`,
+            details: 'Payment integration configured'
           })
         }
+
+        // Email detection
+        if (detectedServices.email.length > 0) {
+          findings.push({
+            type: 'success',
+            category: 'services',
+            message: `Email service: ${detectedServices.email.join(', ')}`,
+            details: 'Transactional email configured'
+          })
+        }
+
+        // Auth detection (legacy check)
+        if (detectedServices.auth.length > 0) {
+          score += 5
+          findings.push({
+            type: 'success',
+            category: 'services',
+            message: `Authentication: ${detectedServices.auth.join(', ')}`,
+            details: 'User authentication configured'
+          })
+        } else {
+          // Fallback to simpler check
+          const varKeys = envVars.map((e: { key: string }) => e.key.toLowerCase())
+          const hasAuth = varKeys.some((k: string) => 
+            k.includes('auth') || k.includes('clerk') || k.includes('nextauth')
+          )
+          if (hasAuth) {
+            score += 5
+            findings.push({
+              type: 'success',
+              category: 'env',
+              message: 'Authentication configuration detected'
+            })
+          }
+        }
+
+        // Database detection (legacy check)
+        if (detectedServices.database.length > 0) {
+          score += 5
+          findings.push({
+            type: 'success',
+            category: 'services',
+            message: `Database: ${detectedServices.database.join(', ')}`,
+            details: 'Database connection configured'
+          })
+        } else {
+          // Fallback to simpler check
+          const varKeys = envVars.map((e: { key: string }) => e.key.toLowerCase())
+          const hasDatabase = varKeys.some((k: string) => 
+            k.includes('database') || k.includes('postgres') || k.includes('mysql')
+          )
+          if (hasDatabase) {
+            score += 5
+            findings.push({
+              type: 'success',
+              category: 'env',
+              message: 'Database configuration detected'
+            })
+          }
+        }
+
+        // AI/ML detection
+        if (detectedServices.ai.length > 0) {
+          findings.push({
+            type: 'success',
+            category: 'services',
+            message: `AI services: ${detectedServices.ai.join(', ')}`,
+            details: 'AI/ML integration configured'
+          })
+        }
+
       } else {
         findings.push({
           type: 'warning',
@@ -178,6 +390,12 @@ export async function scanVercelProject(
           title: 'Configure environment variables',
           description: 'Most apps need environment variables for API keys, database URLs, etc.',
           actionable: 'Add environment variables in Vercel project settings'
+        })
+        recommendations.push({
+          priority: 'high',
+          title: 'Add analytics tracking',
+          description: 'No analytics service detected',
+          actionable: 'Add NEXT_PUBLIC_POSTHOG_KEY or GA_TRACKING_ID in Vercel project settings'
         })
       }
     }

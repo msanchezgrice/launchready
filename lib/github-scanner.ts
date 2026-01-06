@@ -394,6 +394,260 @@ export async function scanGitHubRepo(
   }
 }
 
+// Environment variable patterns for analytics/service detection
+const ENV_VAR_PATTERNS = {
+  // Analytics tools
+  'PostHog': [
+    /POSTHOG/i,
+    /NEXT_PUBLIC_POSTHOG/i,
+  ],
+  'Google Analytics': [
+    /GA_TRACKING/i,
+    /GOOGLE_ANALYTICS/i,
+    /GA_ID/i,
+    /GA4_/i,
+    /NEXT_PUBLIC_GA/i,
+    /GTAG/i,
+  ],
+  'Plausible': [
+    /PLAUSIBLE/i,
+    /NEXT_PUBLIC_PLAUSIBLE/i,
+  ],
+  'Mixpanel': [
+    /MIXPANEL/i,
+    /NEXT_PUBLIC_MIXPANEL/i,
+  ],
+  'Segment': [
+    /SEGMENT/i,
+    /NEXT_PUBLIC_SEGMENT/i,
+  ],
+  'Amplitude': [
+    /AMPLITUDE/i,
+    /NEXT_PUBLIC_AMPLITUDE/i,
+  ],
+  // Error tracking
+  'Sentry': [
+    /SENTRY/i,
+    /NEXT_PUBLIC_SENTRY/i,
+  ],
+  'Bugsnag': [
+    /BUGSNAG/i,
+  ],
+  'Rollbar': [
+    /ROLLBAR/i,
+  ],
+  // Session recording
+  'LogRocket': [
+    /LOGROCKET/i,
+    /NEXT_PUBLIC_LOGROCKET/i,
+  ],
+  'FullStory': [
+    /FULLSTORY/i,
+    /NEXT_PUBLIC_FULLSTORY/i,
+  ],
+  'Hotjar': [
+    /HOTJAR/i,
+    /NEXT_PUBLIC_HOTJAR/i,
+  ],
+  // Databases
+  'Database': [
+    /DATABASE_URL/i,
+    /POSTGRES/i,
+    /MYSQL/i,
+    /MONGODB/i,
+    /SUPABASE/i,
+    /PRISMA/i,
+    /PLANETSCALE/i,
+    /NEON/i,
+  ],
+  // Payment
+  'Stripe': [
+    /STRIPE/i,
+    /NEXT_PUBLIC_STRIPE/i,
+  ],
+  // Email
+  'Resend': [
+    /RESEND/i,
+  ],
+  'SendGrid': [
+    /SENDGRID/i,
+  ],
+  // Auth
+  'Clerk': [
+    /CLERK/i,
+    /NEXT_PUBLIC_CLERK/i,
+  ],
+  'Auth0': [
+    /AUTH0/i,
+  ],
+  'NextAuth': [
+    /NEXTAUTH/i,
+  ],
+}
+
+/**
+ * Scan environment example files for configured services
+ */
+async function scanEnvFiles(
+  accessToken: string,
+  owner: string,
+  repo: string,
+  files: Array<{ path: string; type: string }>
+): Promise<{ findings: GitHubFinding[]; recommendations: GitHubRecommendation[]; detectedServices: string[] }> {
+  const findings: GitHubFinding[] = []
+  const recommendations: GitHubRecommendation[] = []
+  const detectedServices: string[] = []
+
+  // Find env example files
+  const envExampleFiles = files.filter((f: { path: string }) =>
+    /\.env\.example$/i.test(f.path) ||
+    /\.env\.sample$/i.test(f.path) ||
+    /\.env\.local\.example$/i.test(f.path) ||
+    /\.env\.template$/i.test(f.path) ||
+    /env\.example$/i.test(f.path)
+  )
+
+  if (envExampleFiles.length === 0) {
+    return { findings, recommendations, detectedServices }
+  }
+
+  console.log(`[GitHub Scanner] Found ${envExampleFiles.length} env example file(s)`)
+
+  for (const file of envExampleFiles) {
+    try {
+      const contentResponse = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/contents/${file.path}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+          },
+        }
+      )
+
+      if (!contentResponse.ok) continue
+
+      const contentData = await contentResponse.json()
+      const content = Buffer.from(contentData.content || '', 'base64').toString('utf-8')
+
+      // Extract variable names from the env file
+      const envVars = content.split('\n')
+        .map(line => line.trim())
+        .filter(line => line && !line.startsWith('#'))
+        .map(line => line.split('=')[0].trim())
+        .filter(Boolean)
+
+      // Check each service pattern
+      for (const [serviceName, patterns] of Object.entries(ENV_VAR_PATTERNS)) {
+        const hasService = envVars.some(envVar => 
+          patterns.some(pattern => pattern.test(envVar))
+        )
+        if (hasService && !detectedServices.includes(serviceName)) {
+          detectedServices.push(serviceName)
+        }
+      }
+
+    } catch (error) {
+      console.log(`[GitHub Scanner] Error reading ${file.path}:`, error)
+    }
+  }
+
+  // Generate findings based on detected services
+  const analyticsServices = detectedServices.filter(s => 
+    ['PostHog', 'Google Analytics', 'Plausible', 'Mixpanel', 'Segment', 'Amplitude'].includes(s)
+  )
+  const errorTrackingServices = detectedServices.filter(s =>
+    ['Sentry', 'Bugsnag', 'Rollbar'].includes(s)
+  )
+  const sessionServices = detectedServices.filter(s =>
+    ['LogRocket', 'FullStory', 'Hotjar'].includes(s)
+  )
+  const paymentServices = detectedServices.filter(s =>
+    ['Stripe'].includes(s)
+  )
+  const emailServices = detectedServices.filter(s =>
+    ['Resend', 'SendGrid'].includes(s)
+  )
+  const authServices = detectedServices.filter(s =>
+    ['Clerk', 'Auth0', 'NextAuth'].includes(s)
+  )
+
+  if (analyticsServices.length > 0) {
+    findings.push({
+      type: 'success',
+      category: 'general',
+      message: `Analytics configured: ${analyticsServices.join(', ')}`,
+      details: 'Found in environment variables'
+    })
+  }
+
+  if (errorTrackingServices.length > 0) {
+    findings.push({
+      type: 'success',
+      category: 'general',
+      message: `Error tracking configured: ${errorTrackingServices.join(', ')}`,
+      details: 'Found in environment variables'
+    })
+  }
+
+  if (sessionServices.length > 0) {
+    findings.push({
+      type: 'success',
+      category: 'general',
+      message: `Session recording configured: ${sessionServices.join(', ')}`,
+      details: 'Found in environment variables'
+    })
+  }
+
+  if (paymentServices.length > 0) {
+    findings.push({
+      type: 'success',
+      category: 'general',
+      message: `Payment processing: ${paymentServices.join(', ')}`,
+      details: 'Found in environment variables'
+    })
+  }
+
+  if (emailServices.length > 0) {
+    findings.push({
+      type: 'success',
+      category: 'general',
+      message: `Email service: ${emailServices.join(', ')}`,
+      details: 'Found in environment variables'
+    })
+  }
+
+  if (authServices.length > 0) {
+    findings.push({
+      type: 'success',
+      category: 'general',
+      message: `Authentication: ${authServices.join(', ')}`,
+      details: 'Found in environment variables'
+    })
+  }
+
+  // Add recommendations for missing critical services
+  if (analyticsServices.length === 0) {
+    recommendations.push({
+      priority: 'medium',
+      title: 'Add analytics tracking',
+      description: 'No analytics service detected in environment variables',
+      actionable: 'Add NEXT_PUBLIC_POSTHOG_KEY or GA_TRACKING_ID to track user behavior'
+    })
+  }
+
+  if (errorTrackingServices.length === 0) {
+    recommendations.push({
+      priority: 'high',
+      title: 'Add error tracking',
+      description: 'No error tracking service detected in environment variables',
+      actionable: 'Add SENTRY_DSN for production error monitoring'
+    })
+  }
+
+  return { findings, recommendations, detectedServices }
+}
+
 /**
  * Check for analytics configuration in the repository
  */
@@ -405,6 +659,7 @@ async function checkAnalyticsInRepo(
 ): Promise<{ findings: GitHubFinding[]; recommendations: GitHubRecommendation[] }> {
   const findings: GitHubFinding[] = []
   const recommendations: GitHubRecommendation[] = []
+  const allDetectedServices: string[] = []
 
   // Analytics patterns to detect in package.json or config files
   const analyticsPackages = {
@@ -417,6 +672,11 @@ async function checkAnalyticsInRepo(
     'Vercel Analytics': ['@vercel/analytics'],
     'Sentry': ['@sentry/nextjs', '@sentry/react', '@sentry/node'],
   }
+
+  // First, scan env files for service configuration
+  const envScanResults = await scanEnvFiles(accessToken, owner, repo, files)
+  findings.push(...envScanResults.findings)
+  allDetectedServices.push(...envScanResults.detectedServices)
 
   // Check package.json for analytics dependencies
   const packageJson = files.find((f: { path: string }) => f.path === 'package.json')
@@ -437,45 +697,63 @@ async function checkAnalyticsInRepo(
         const pkgContent = JSON.parse(Buffer.from(pkgData.content || '', 'base64').toString('utf-8'))
         const allDeps = { ...pkgContent.dependencies, ...pkgContent.devDependencies }
         
-        const detectedAnalytics: string[] = []
+        const detectedFromPkg: string[] = []
         
         for (const [tool, packages] of Object.entries(analyticsPackages)) {
           if (packages.some(pkg => allDeps[pkg])) {
-            detectedAnalytics.push(tool)
+            if (!allDetectedServices.includes(tool)) {
+              detectedFromPkg.push(tool)
+              allDetectedServices.push(tool)
+            }
           }
         }
         
-        if (detectedAnalytics.length > 0) {
+        // Only add package.json findings if we found something new (not already in env)
+        if (detectedFromPkg.length > 0) {
           findings.push({
             type: 'success',
             category: 'general',
-            message: `Analytics detected: ${detectedAnalytics.join(', ')}`,
+            message: `Additional packages: ${detectedFromPkg.join(', ')}`,
             details: 'Analytics packages found in dependencies'
-          })
-        } else {
-          recommendations.push({
-            priority: 'medium',
-            title: 'Add analytics',
-            description: 'No analytics packages detected in dependencies',
-            actionable: 'Install PostHog, Plausible, or Google Analytics for user tracking'
           })
         }
         
-        // Check for error tracking
-        if (!allDeps['@sentry/nextjs'] && !allDeps['@sentry/react'] && !allDeps['@sentry/node']) {
-          const hasOtherErrorTracking = allDeps['bugsnag'] || allDeps['@bugsnag/js'] || allDeps['rollbar']
-          if (!hasOtherErrorTracking) {
-            recommendations.push({
-              priority: 'high',
-              title: 'Add error tracking',
-              description: 'No error tracking found in dependencies',
-              actionable: 'Install Sentry for production error monitoring'
-            })
+        // Check for error tracking (only if not already detected from env)
+        if (!allDetectedServices.includes('Sentry') && !allDetectedServices.includes('Bugsnag') && !allDetectedServices.includes('Rollbar')) {
+          if (!allDeps['@sentry/nextjs'] && !allDeps['@sentry/react'] && !allDeps['@sentry/node']) {
+            const hasOtherErrorTracking = allDeps['bugsnag'] || allDeps['@bugsnag/js'] || allDeps['rollbar']
+            if (!hasOtherErrorTracking && !envScanResults.recommendations.some(r => r.title.includes('error tracking'))) {
+              recommendations.push({
+                priority: 'high',
+                title: 'Add error tracking',
+                description: 'No error tracking found in dependencies or environment',
+                actionable: 'Install Sentry for production error monitoring'
+              })
+            }
           }
         }
       }
     } catch (error) {
       console.log('[GitHub Scanner] Could not parse package.json for analytics:', error)
+    }
+  }
+
+  // Only add analytics recommendation if nothing detected at all
+  if (!allDetectedServices.some(s => ['PostHog', 'Google Analytics', 'Plausible', 'Mixpanel', 'Segment', 'Amplitude', 'Vercel Analytics'].includes(s))) {
+    if (!envScanResults.recommendations.some(r => r.title.includes('analytics'))) {
+      recommendations.push({
+        priority: 'medium',
+        title: 'Add analytics',
+        description: 'No analytics detected in dependencies or environment variables',
+        actionable: 'Install PostHog, Plausible, or Google Analytics for user tracking'
+      })
+    }
+  }
+
+  // Add env scan recommendations (deduped)
+  for (const rec of envScanResults.recommendations) {
+    if (!recommendations.some(r => r.title === rec.title)) {
+      recommendations.push(rec)
     }
   }
 

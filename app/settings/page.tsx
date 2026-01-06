@@ -17,6 +17,7 @@ import {
   Webhook,
   Lock,
 } from 'lucide-react'
+import GitHubConnectModal from '@/components/GitHubConnectModal'
 
 interface UserSettings {
   id: string
@@ -49,6 +50,7 @@ export default function SettingsPage() {
   const [disconnecting, setDisconnecting] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState('')
   const [error, setError] = useState('')
+  const [showGitHubModal, setShowGitHubModal] = useState(false)
 
   // Check for OAuth success/error messages
   useEffect(() => {
@@ -161,7 +163,7 @@ export default function SettingsPage() {
   }
 
   function connectGitHub() {
-    window.location.href = `/api/auth/github?returnTo=/settings`
+    setShowGitHubModal(true)
   }
 
   function connectVercel() {
@@ -510,6 +512,13 @@ export default function SettingsPage() {
           </div>
         </section>
       </main>
+
+      {/* GitHub Connect Modal */}
+      <GitHubConnectModal
+        isOpen={showGitHubModal}
+        onClose={() => setShowGitHubModal(false)}
+        returnTo="/settings"
+      />
     </div>
   )
 }

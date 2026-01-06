@@ -6,6 +6,7 @@
 import Queue, { Job, JobOptions } from 'bull';
 import { getBullRedisOptions, isRedisConfigured } from './redis';
 import { scanProject, ScanResult } from './scanner';
+import { scanGitHubRepo, GitHubScanResult } from './github-scanner';
 
 // Job data structure
 export interface ScanJobData {
@@ -14,12 +15,17 @@ export interface ScanJobData {
   url: string;
   userId: string;
   trigger: 'manual' | 'auto-scan' | 'api' | 'batch';
+  // Optional: GitHub repo URL if project has one
+  githubRepo?: string;
+  // Optional: GitHub access token (from user)
+  githubAccessToken?: string;
 }
 
 // Job result structure
 export interface ScanJobResult {
   success: boolean;
   scanResult?: ScanResult;
+  githubScanResult?: GitHubScanResult;
   error?: string;
   duration: number;
 }
@@ -223,7 +229,7 @@ export function startScanWorker(concurrency: number = 2): void {
 
   queue.process(concurrency, async (job: Job<ScanJobData>) => {
     const startTime = Date.now();
-    const { projectId, projectName, url, userId, trigger } = job.data;
+    const { projectId, projectName, url, userId, trigger, githubRepo, githubAccessToken } = job.data;
 
     console.log(`[ScanWorker] Processing job ${job.id}: ${url}`);
 
@@ -231,10 +237,26 @@ export function startScanWorker(concurrency: number = 2): void {
       // Update progress: starting
       await job.progress(10);
 
-      // Run the scan
+      // Run the URL scan
       const scanResult = await scanProject(url);
 
-      // Update progress: scan complete
+      // Update progress: URL scan complete
+      await job.progress(70);
+
+      // Run GitHub scan if repo is configured and token available
+      let githubScanResult: GitHubScanResult | undefined;
+      if (githubRepo && githubAccessToken) {
+        console.log(`[ScanWorker] Running GitHub scan for ${githubRepo}`);
+        try {
+          githubScanResult = await scanGitHubRepo(githubAccessToken, githubRepo);
+          console.log(`[ScanWorker] GitHub scan complete: ${githubScanResult.score}/${githubScanResult.maxScore}`);
+        } catch (ghError) {
+          console.error('[ScanWorker] GitHub scan failed (continuing):', ghError);
+          // Don't fail the whole job if GitHub scan fails
+        }
+      }
+
+      // Update progress: all scans complete
       await job.progress(90);
 
       const duration = Date.now() - startTime;
@@ -261,6 +283,16 @@ export function startScanWorker(concurrency: number = 2): void {
             metadata: {
               duration,
               jobId: job.id?.toString(),
+              // Include GitHub scan results if available
+              ...(githubScanResult ? {
+                githubScan: {
+                  score: githubScanResult.score,
+                  maxScore: githubScanResult.maxScore,
+                  findings: githubScanResult.findings,
+                  recommendations: githubScanResult.recommendations,
+                  repoFound: githubScanResult.repoFound,
+                },
+              } : {}),
             },
             phases: {
               create: scanResult.phases.map((phase) => ({
@@ -398,6 +430,7 @@ export function startScanWorker(concurrency: number = 2): void {
       const result: ScanJobResult = {
         success: true,
         scanResult,
+        githubScanResult,
         duration,
       };
 

@@ -1,6 +1,8 @@
 /**
  * GitHub OAuth Callback
  * Exchanges code for access token and stores it at user level
+ * 
+ * Stores the access mode (all/select) for future reference
  */
 
 import { NextResponse } from 'next/server'
@@ -21,8 +23,8 @@ export async function GET(request: Request) {
     return NextResponse.redirect(new URL('/settings?error=missing_params', request.url))
   }
 
-  // Decode state to get userId and returnTo
-  let stateData: { userId: string; returnTo?: string }
+  // Decode state to get userId, returnTo, and mode
+  let stateData: { userId: string; returnTo?: string; mode?: string }
   try {
     stateData = JSON.parse(Buffer.from(state, 'base64').toString())
   } catch {
@@ -60,6 +62,7 @@ export async function GET(request: Request) {
     }
 
     const accessToken = tokenData.access_token
+    const tokenScope = tokenData.scope // e.g., "repo,read:user" or "public_repo,read:user"
 
     // Get user's GitHub info
     const userResponse = await fetch('https://api.github.com/user', {
@@ -79,17 +82,21 @@ export async function GET(request: Request) {
       return NextResponse.redirect(new URL('/settings?error=user_not_found', request.url))
     }
 
-    // Update user with GitHub token (user-level, not project-level)
+    // Determine access mode from state or infer from scope
+    const accessMode = stateData.mode || (tokenScope?.includes('repo') ? 'all' : 'select')
+
+    // Update user with GitHub token and access mode
     await prisma.user.update({
       where: { id: user.id },
       data: {
         githubAccessToken: accessToken,
         githubUsername: githubUser.login,
         githubConnectedAt: new Date(),
+        githubAccessMode: accessMode, // 'all' or 'select'
       },
     })
 
-    console.log(`[GitHub OAuth] Connected GitHub for user ${user.id} (${githubUser.login})`)
+    console.log(`[GitHub OAuth] Connected GitHub for user ${user.id} (${githubUser.login}) with ${accessMode} access`)
 
     const returnTo = stateData.returnTo || '/settings'
     return NextResponse.redirect(

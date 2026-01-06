@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { currentUser } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
 import { scanProject, ScanPhaseResult } from '@/lib/scanner'
+import { scanGitHubRepo, GitHubScanResult } from '@/lib/github-scanner'
 import { canScan, getPlanLimits } from '@/lib/stripe'
 import { isRedisConfigured } from '@/lib/redis'
 import { addScanJob } from '@/lib/scan-queue'
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest, { params }: { params: Params })
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Verify project ownership
+    // Verify project ownership and get user's GitHub token
     const project = await prisma.project.findFirst({
       where: {
         id: projectId,
@@ -40,6 +41,12 @@ export async function POST(request: NextRequest, { params }: { params: Params })
         scans: {
           orderBy: { scannedAt: 'desc' },
           take: 1,
+        },
+        user: {
+          select: {
+            githubAccessToken: true,
+            githubUsername: true,
+          },
         },
       },
     })
@@ -86,13 +93,16 @@ export async function POST(request: NextRequest, { params }: { params: Params })
         )
       }
 
-      // Add job to queue
+      // Add job to queue (include GitHub info if available)
       const job = await addScanJob({
         projectId: project.id,
         projectName: project.name,
         url: project.url,
         userId: dbUser.id,
         trigger: 'manual',
+        // Pass GitHub info for automatic GitHub scanning
+        githubRepo: project.githubRepo || undefined,
+        githubAccessToken: project.user.githubAccessToken || undefined,
       })
 
       // Update user's lastScan timestamp (reserve the slot)
@@ -116,12 +126,37 @@ export async function POST(request: NextRequest, { params }: { params: Params })
     // Synchronous scan (default)
     const scanResult = await scanProject(project.url)
 
+    // Automatically run GitHub scan if repo is configured and GitHub is connected
+    let githubScanResult: GitHubScanResult | null = null
+    if (project.githubRepo && project.user.githubAccessToken) {
+      console.log(`[Scan] Running automatic GitHub scan for ${project.githubRepo}`)
+      try {
+        githubScanResult = await scanGitHubRepo(
+          project.user.githubAccessToken,
+          project.githubRepo
+        )
+        console.log(`[Scan] GitHub scan complete: ${githubScanResult.score}/${githubScanResult.maxScore}`)
+      } catch (error) {
+        console.error('[Scan] GitHub scan failed (continuing with URL scan):', error)
+        // Don't fail the whole scan if GitHub scan fails
+      }
+    }
+
     // Save scan results to database
     const scan = await prisma.scan.create({
       data: {
         projectId: project.id,
         score: scanResult.score,
         trigger: 'manual',
+        metadata: githubScanResult ? {
+          githubScan: {
+            score: githubScanResult.score,
+            maxScore: githubScanResult.maxScore,
+            findings: githubScanResult.findings,
+            recommendations: githubScanResult.recommendations,
+            repoFound: githubScanResult.repoFound,
+          },
+        } : undefined,
         phases: {
           create: scanResult.phases.map((phase: ScanPhaseResult) => ({
             phaseName: phase.phaseName,
@@ -145,6 +180,7 @@ export async function POST(request: NextRequest, { params }: { params: Params })
 
     return NextResponse.json({
       scan,
+      githubScan: githubScanResult,
       message: 'Scan completed successfully',
     })
   } catch (error) {

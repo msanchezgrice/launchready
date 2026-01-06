@@ -119,8 +119,9 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [scanning, setScanning] = useState(false)
   const [showScanModal, setShowScanModal] = useState(false)
   const [expandedPhases, setExpandedPhases] = useState<Set<number>>(new Set())
-  const [githubScan, setGithubScan] = useState<GitHubScanResult | null>(null)
-  const [githubScanning, setGithubScanning] = useState(false)
+  // GitHub scan results now come from the main scan's metadata (automatic)
+  // const [githubScan, setGithubScan] = useState<GitHubScanResult | null>(null)
+  // const [githubScanning, setGithubScanning] = useState(false)
   const [showGithubModal, setShowGithubModal] = useState(false)
   const [githubRepoUrl, setGithubRepoUrl] = useState('')
   const [savingRepo, setSavingRepo] = useState(false)
@@ -207,26 +208,8 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     setShowScanModal(true)
   }
 
-  async function handleGitHubScan() {
-    if (!integrations?.githubConnected || !project?.githubRepo) return
-    setGithubScanning(true)
-    setError('')
-    try {
-      const res = await fetch(`/api/projects/${resolvedParams.id}/github-scan`, {
-        method: 'POST',
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || data.message || 'GitHub scan failed')
-      }
-      const data = await res.json()
-      setGithubScan(data.result)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'GitHub scan failed')
-    } finally {
-      setGithubScanning(false)
-    }
-  }
+  // GitHub scan is now automatic - results come from scan metadata
+  // The handleGitHubScan function has been removed
 
   async function handleSaveGithubRepo() {
     setSavingRepo(true)
@@ -477,24 +460,12 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                 )}
               </button>
               
+              {/* GitHub scan is now automatic when you have a repo connected */}
               {integrations?.githubConnected && project.githubRepo && (
-                <button
-                  onClick={handleGitHubScan}
-                  disabled={githubScanning}
-                  className="px-6 py-3 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 rounded-lg font-medium transition-colors flex items-center gap-2"
-                >
-                  {githubScanning ? (
-                    <>
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                      Scanning Repo...
-                    </>
-                  ) : (
-                    <>
-                      <Github className="h-4 w-4" />
-                      Scan GitHub Repo
-                    </>
-                  )}
-                </button>
+                <div className="px-4 py-2 bg-slate-700/50 rounded-lg text-sm text-slate-400 flex items-center gap-2">
+                  <Github className="h-4 w-4" />
+                  <span>GitHub scan included automatically</span>
+                </div>
               )}
 
               {/* PDF Export Button */}
@@ -676,68 +647,74 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
               </div>
             </div>
 
-            {/* GitHub Scan Results */}
-            {githubScan && (
-              <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 mb-8">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold flex items-center gap-2">
-                    <Github className="h-5 w-5" />
-                    GitHub Repository Analysis
-                  </h3>
-                  <span className={`text-2xl font-bold ${
-                    githubScan.score >= 80 ? 'text-emerald-400' :
-                    githubScan.score >= 60 ? 'text-amber-400' : 'text-red-400'
-                  }`}>
-                    {githubScan.score}/{githubScan.maxScore}
-                  </span>
-                </div>
+            {/* GitHub Scan Results - from scan metadata (automatic) */}
+            {(() => {
+              const metadata = latestScan.metadata as { githubScan?: GitHubScanResult } | null
+              const githubScan = metadata?.githubScan
+              if (!githubScan) return null
+              
+              return (
+                <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 mb-8">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <Github className="h-5 w-5" />
+                      GitHub Repository Analysis
+                    </h3>
+                    <span className={`text-2xl font-bold ${
+                      githubScan.score >= 80 ? 'text-emerald-400' :
+                      githubScan.score >= 60 ? 'text-amber-400' : 'text-red-400'
+                    }`}>
+                      {githubScan.score}/{githubScan.maxScore}
+                    </span>
+                  </div>
 
-                <div className="space-y-3">
-                  {githubScan.findings.map((finding, idx) => (
-                    <div key={idx} className="flex items-start gap-2 text-sm">
-                      <span className={
-                        finding.type === 'success' ? 'text-emerald-400' :
-                        finding.type === 'warning' ? 'text-amber-400' : 'text-red-400'
-                      }>
-                        {finding.type === 'success' ? '✓' : finding.type === 'warning' ? '⚠' : '✗'}
-                      </span>
-                      <div>
-                        <span className="text-slate-300">{finding.message}</span>
-                        {finding.file && (
-                          <span className="text-slate-500 ml-2">({finding.file})</span>
-                        )}
-                        {finding.details && (
-                          <p className="text-xs text-slate-500 mt-1">{finding.details}</p>
-                        )}
+                  <div className="space-y-3">
+                    {githubScan.findings.map((finding, idx) => (
+                      <div key={idx} className="flex items-start gap-2 text-sm">
+                        <span className={
+                          finding.type === 'success' ? 'text-emerald-400' :
+                          finding.type === 'warning' ? 'text-amber-400' : 'text-red-400'
+                        }>
+                          {finding.type === 'success' ? '✓' : finding.type === 'warning' ? '⚠' : '✗'}
+                        </span>
+                        <div>
+                          <span className="text-slate-300">{finding.message}</span>
+                          {finding.file && (
+                            <span className="text-slate-500 ml-2">({finding.file})</span>
+                          )}
+                          {finding.details && (
+                            <p className="text-xs text-slate-500 mt-1">{finding.details}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {githubScan.recommendations.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-slate-700">
+                      <h4 className="text-sm font-semibold text-slate-400 mb-3">💡 Recommendations</h4>
+                      <div className="space-y-2">
+                        {githubScan.recommendations.map((rec, idx) => (
+                          <div key={idx} className="bg-slate-700/30 rounded-lg p-3">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                rec.priority === 'high' ? 'bg-red-500/20 text-red-400' :
+                                rec.priority === 'medium' ? 'bg-amber-500/20 text-amber-400' :
+                                'bg-slate-500/20 text-slate-400'
+                              }`}>
+                                {rec.priority}
+                              </span>
+                              <span className="font-medium text-white">{rec.title}</span>
+                            </div>
+                            <p className="text-sm text-slate-400">{rec.actionable}</p>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
+                  )}
                 </div>
-
-                {githubScan.recommendations.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-slate-700">
-                    <h4 className="text-sm font-semibold text-slate-400 mb-3">💡 Recommendations</h4>
-                    <div className="space-y-2">
-                      {githubScan.recommendations.map((rec, idx) => (
-                        <div key={idx} className="bg-slate-700/30 rounded-lg p-3">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-xs px-2 py-0.5 rounded-full ${
-                              rec.priority === 'high' ? 'bg-red-500/20 text-red-400' :
-                              rec.priority === 'medium' ? 'bg-amber-500/20 text-amber-400' :
-                              'bg-slate-500/20 text-slate-400'
-                            }`}>
-                              {rec.priority}
-                            </span>
-                            <span className="font-medium text-white">{rec.title}</span>
-                          </div>
-                          <p className="text-sm text-slate-400">{rec.actionable}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+              )
+            })()}
 
             {/* Phase Breakdown */}
             <h2 className="text-2xl font-bold mb-6">Phase Breakdown</h2>

@@ -99,10 +99,17 @@ export async function runVisualScan(url: string): Promise<VisualScanResult> {
     // Desktop scan
     console.log('[Visual Scanner] Capturing desktop screenshot...')
     const desktopResult = await captureViewport(browser, url, VIEWPORTS.desktop, 'desktop')
+    console.log('[Visual Scanner] Desktop capture result:', { 
+      hasBuffer: !!desktopResult.screenshotBuffer, 
+      bufferSize: desktopResult.screenshotBuffer?.length || 0,
+      findingsCount: desktopResult.findings.length 
+    })
     if (desktopResult.screenshotBuffer) {
       // Upload to Vercel Blob
+      const blobPath = `screenshots/${hostname}-desktop-${timestamp}.jpg`
+      console.log('[Visual Scanner] Uploading desktop to Blob:', blobPath)
       try {
-        const blob = await put(`screenshots/${hostname}-desktop-${timestamp}.jpg`, desktopResult.screenshotBuffer, {
+        const blob = await put(blobPath, desktopResult.screenshotBuffer, {
           access: 'public',
           contentType: 'image/jpeg',
         })
@@ -110,7 +117,10 @@ export async function runVisualScan(url: string): Promise<VisualScanResult> {
         console.log('[Visual Scanner] Desktop screenshot uploaded:', blob.url)
       } catch (uploadError) {
         console.error('[Visual Scanner] Failed to upload desktop screenshot:', uploadError)
+        console.error('[Visual Scanner] Upload error details:', JSON.stringify(uploadError, null, 2))
       }
+    } else {
+      console.log('[Visual Scanner] No desktop screenshot buffer to upload')
     }
     findings.push(...desktopResult.findings)
     Object.assign(metrics, desktopResult.metrics)
@@ -118,10 +128,17 @@ export async function runVisualScan(url: string): Promise<VisualScanResult> {
     // Mobile scan
     console.log('[Visual Scanner] Capturing mobile screenshot...')
     const mobileResult = await captureViewport(browser, url, VIEWPORTS.mobile, 'mobile')
+    console.log('[Visual Scanner] Mobile capture result:', { 
+      hasBuffer: !!mobileResult.screenshotBuffer, 
+      bufferSize: mobileResult.screenshotBuffer?.length || 0,
+      findingsCount: mobileResult.findings.length 
+    })
     if (mobileResult.screenshotBuffer) {
       // Upload to Vercel Blob
+      const blobPath = `screenshots/${hostname}-mobile-${timestamp}.jpg`
+      console.log('[Visual Scanner] Uploading mobile to Blob:', blobPath)
       try {
-        const blob = await put(`screenshots/${hostname}-mobile-${timestamp}.jpg`, mobileResult.screenshotBuffer, {
+        const blob = await put(blobPath, mobileResult.screenshotBuffer, {
           access: 'public',
           contentType: 'image/jpeg',
         })
@@ -129,7 +146,10 @@ export async function runVisualScan(url: string): Promise<VisualScanResult> {
         console.log('[Visual Scanner] Mobile screenshot uploaded:', blob.url)
       } catch (uploadError) {
         console.error('[Visual Scanner] Failed to upload mobile screenshot:', uploadError)
+        console.error('[Visual Scanner] Upload error details:', JSON.stringify(uploadError, null, 2))
       }
+    } else {
+      console.log('[Visual Scanner] No mobile screenshot buffer to upload')
     }
     findings.push(...mobileResult.findings)
 

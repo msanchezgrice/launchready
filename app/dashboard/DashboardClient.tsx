@@ -36,6 +36,7 @@ import UpgradeModal from '@/components/ui/UpgradeModal'
 import { ProjectCardSkeleton } from '@/components/ui/Skeleton'
 import ScanProgressIndicator from '@/components/ui/ScanProgressIndicator'
 import ScanProgressModal from '@/components/ui/ScanProgressModal'
+import { validateField, normalizeUrl, normalizeGitHubRepo } from '@/lib/validation'
 
 interface Project {
   id: string
@@ -101,6 +102,7 @@ export default function DashboardClient() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [upgradeReason, setUpgradeReason] = useState<'project_limit' | 'scan_limit' | 'feature'>('project_limit')
   const [newProject, setNewProject] = useState({ name: '', url: '', githubRepo: '', autoScan: false })
+  const [formErrors, setFormErrors] = useState<{ name?: string; url?: string; github?: string }>({})
   const [addingProject, setAddingProject] = useState(false)
   const [scanning, setScanning] = useState<string | null>(null)
   const [scanModalProject, setScanModalProject] = useState<{ id: string; url: string } | null>(null)
@@ -253,13 +255,37 @@ export default function DashboardClient() {
 
   async function handleAddProject(e: React.FormEvent) {
     e.preventDefault()
+    
+    // Validate all fields
+    const nameValidation = validateField(newProject.name, 'name')
+    const urlValidation = validateField(newProject.url, 'url')
+    const githubValidation = validateField(newProject.githubRepo, 'github')
+    
+    const errors: { name?: string; url?: string; github?: string } = {}
+    if (!nameValidation.valid) errors.name = nameValidation.error
+    if (!urlValidation.valid) errors.url = urlValidation.error
+    if (!githubValidation.valid) errors.github = githubValidation.error
+    
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors)
+      return
+    }
+    
     setAddingProject(true)
+    setFormErrors({})
 
     try {
+      // Normalize inputs before sending
+      const normalizedData = {
+        ...newProject,
+        url: normalizeUrl(newProject.url),
+        githubRepo: newProject.githubRepo ? normalizeGitHubRepo(newProject.githubRepo) : '',
+      }
+      
       const res = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newProject),
+        body: JSON.stringify(normalizedData),
       })
 
       const data = await res.json()
@@ -1025,6 +1051,7 @@ export default function DashboardClient() {
                 onClick={() => {
                   setShowAddModal(false)
                   setNewProject({ name: '', url: '', githubRepo: '', autoScan: false })
+                  setFormErrors({})
                 }}
                 className="text-slate-400 hover:text-white transition-colors"
               >
@@ -1040,12 +1067,23 @@ export default function DashboardClient() {
                 <input
                   type="text"
                   value={newProject.name}
-                  onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-                  className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+                  onChange={(e) => {
+                    setNewProject({ ...newProject, name: e.target.value })
+                    if (formErrors.name) setFormErrors({ ...formErrors, name: undefined })
+                  }}
+                  onBlur={() => {
+                    const result = validateField(newProject.name, 'name')
+                    if (!result.valid) setFormErrors({ ...formErrors, name: result.error })
+                  }}
+                  className={`w-full px-4 py-3 bg-slate-700 border rounded-lg focus:outline-none focus:ring-1 transition-colors ${
+                    formErrors.name ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : 'border-slate-600 focus:border-indigo-500 focus:ring-indigo-500'
+                  }`}
                   placeholder="My New SaaS Product"
-                  required
                   autoFocus
                 />
+                {formErrors.name && (
+                  <p className="text-xs text-red-400 mt-1">{formErrors.name}</p>
+                )}
               </div>
 
               {/* Website URL */}
@@ -1054,16 +1092,28 @@ export default function DashboardClient() {
                   Primary URL (domain or website) <span className="text-red-400">*</span>
                 </label>
                 <input
-                  type="url"
+                  type="text"
                   value={newProject.url}
-                  onChange={(e) => setNewProject({ ...newProject, url: e.target.value })}
-                  className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+                  onChange={(e) => {
+                    setNewProject({ ...newProject, url: e.target.value })
+                    if (formErrors.url) setFormErrors({ ...formErrors, url: undefined })
+                  }}
+                  onBlur={() => {
+                    const result = validateField(newProject.url, 'url')
+                    if (!result.valid) setFormErrors({ ...formErrors, url: result.error })
+                  }}
+                  className={`w-full px-4 py-3 bg-slate-700 border rounded-lg focus:outline-none focus:ring-1 transition-colors ${
+                    formErrors.url ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : 'border-slate-600 focus:border-indigo-500 focus:ring-indigo-500'
+                  }`}
                   placeholder="https://mynewsaas.com"
-                  required
                 />
-                <p className="text-xs text-slate-500 mt-1">
-                  💡 We&apos;ll automatically scan this URL for all 8 phases
-                </p>
+                {formErrors.url ? (
+                  <p className="text-xs text-red-400 mt-1">{formErrors.url}</p>
+                ) : (
+                  <p className="text-xs text-slate-500 mt-1">
+                    💡 We&apos;ll automatically scan this URL for all 8 phases
+                  </p>
+                )}
               </div>
 
               {/* Optional: GitHub (Pro feature) */}

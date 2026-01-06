@@ -14,6 +14,8 @@ import {
   AlertTriangle,
   Loader2,
   ExternalLink,
+  Webhook,
+  Lock,
 } from 'lucide-react'
 
 interface UserSettings {
@@ -25,6 +27,7 @@ interface UserSettings {
   scoreDropAlerts: boolean
   weeklyDigest: boolean
   scanCompleteNotify: boolean
+  webhookUrl: string | null
   // GitHub
   githubConnected: boolean
   githubUsername: string | null
@@ -41,6 +44,8 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [savingWebhook, setSavingWebhook] = useState(false)
+  const [webhookUrl, setWebhookUrl] = useState('')
   const [disconnecting, setDisconnecting] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState('')
   const [error, setError] = useState('')
@@ -85,10 +90,34 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error('Failed to fetch settings')
       const data = await res.json()
       setSettings(data.user)
+      setWebhookUrl(data.user?.webhookUrl || '')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function saveWebhookUrl() {
+    if (!settings) return
+    setSavingWebhook(true)
+    setError('')
+    try {
+      const res = await fetch('/api/user/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webhookUrl: webhookUrl || null }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to save webhook URL')
+      }
+      setSettings({ ...settings, webhookUrl: webhookUrl || null })
+      setSuccessMessage('Webhook URL saved successfully!')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save webhook URL')
+    } finally {
+      setSavingWebhook(false)
     }
   }
 
@@ -386,6 +415,84 @@ export default function SettingsPage() {
               </button>
             </div>
           </div>
+        </section>
+
+        {/* Webhooks Section */}
+        <section className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+          <h2 className="text-lg font-semibold mb-2 flex items-center gap-2">
+            <Webhook className="h-5 w-5 text-indigo-400" />
+            Webhooks
+            {(settings?.plan !== 'pro_plus' && settings?.plan !== 'enterprise') && (
+              <span className="ml-2 px-2 py-0.5 bg-amber-900/30 text-amber-400 rounded-full text-xs flex items-center gap-1">
+                <Lock className="h-3 w-3" />
+                Pro Plus+
+              </span>
+            )}
+          </h2>
+          <p className="text-slate-400 text-sm mb-6">
+            Send scan notifications to Slack, Discord, or any custom webhook URL.
+          </p>
+
+          {(settings?.plan === 'pro_plus' || settings?.plan === 'enterprise') ? (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Webhook URL
+                </label>
+                <div className="flex gap-3">
+                  <input
+                    type="url"
+                    value={webhookUrl}
+                    onChange={(e) => setWebhookUrl(e.target.value)}
+                    placeholder="https://hooks.slack.com/services/..."
+                    className="flex-1 px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+                  />
+                  <button
+                    onClick={saveWebhookUrl}
+                    disabled={savingWebhook || webhookUrl === (settings?.webhookUrl || '')}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                  >
+                    {savingWebhook ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      'Save'
+                    )}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  Supported: Slack webhooks, Discord webhooks, or any custom URL that accepts POST requests
+                </p>
+              </div>
+
+              {settings?.webhookUrl && (
+                <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-4">
+                  <h4 className="text-sm font-medium mb-2 text-slate-300">What you&apos;ll receive:</h4>
+                  <ul className="text-sm text-slate-400 space-y-1">
+                    <li>• Scan completion notifications with score and breakdown</li>
+                    <li>• Score drop alerts when your readiness drops</li>
+                    <li>• Rich formatting for Slack and Discord</li>
+                  </ul>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-6 text-center">
+              <Lock className="h-8 w-8 text-slate-500 mx-auto mb-3" />
+              <p className="text-slate-300 font-medium mb-2">Webhooks require Pro Plus or Enterprise</p>
+              <p className="text-sm text-slate-400 mb-4">
+                Upgrade to get Slack/Discord notifications for your scans.
+              </p>
+              <Link
+                href="/pricing"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-colors"
+              >
+                View Pricing
+              </Link>
+            </div>
+          )}
         </section>
 
         {/* Account Info */}

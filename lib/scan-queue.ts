@@ -276,70 +276,116 @@ export function startScanWorker(concurrency: number = 2): void {
 
         console.log(`[ScanWorker] Saved scan ${scan.id} for project ${projectId}`);
 
-        // Send email notifications
+        // Send email and webhook notifications
         try {
           const { 
             sendScanCompleteEmail, 
             sendScoreDropAlert, 
             isEmailConfigured 
           } = await import('./email');
+          const { 
+            sendWebhookNotification, 
+            sendScoreDropWebhook 
+          } = await import('./webhooks');
           
-          if (isEmailConfigured()) {
-            // Get user details for email
-            const user = await prisma.user.findUnique({
-              where: { id: userId },
-              select: { 
-                email: true, 
-                scoreDropAlerts: true, 
-                scanCompleteNotify: true,
-              },
+          // Get user details for notifications
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { 
+              email: true, 
+              scoreDropAlerts: true, 
+              scanCompleteNotify: true,
+              webhookUrl: true,
+              plan: true,
+            },
+          });
+
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://launchready.me';
+          const scanUrl = `${appUrl}/projects/${projectId}`;
+
+          // Prepare phases data for notifications
+          const phasesData = scanResult.phases.map(p => ({
+            name: p.phaseName,
+            score: p.score,
+            maxScore: p.maxScore,
+            status: (p.score / p.maxScore >= 0.7 ? 'pass' : 
+                    p.score / p.maxScore >= 0.5 ? 'warning' : 'fail') as 'pass' | 'warning' | 'fail',
+          }));
+
+          // Send webhook notification (Pro Plus and Enterprise only)
+          const webhookUrl = (user as { webhookUrl?: string })?.webhookUrl;
+          const userPlan = (user as { plan?: string })?.plan;
+          if (webhookUrl && (userPlan === 'pro_plus' || userPlan === 'enterprise')) {
+            const change = previousScore !== undefined 
+              ? scanResult.score - previousScore 
+              : undefined;
+
+            await sendWebhookNotification(webhookUrl, {
+              projectName,
+              projectUrl: url,
+              score: scanResult.score,
+              previousScore,
+              change,
+              scanUrl,
+              trigger,
+              timestamp: new Date().toISOString(),
+              phases: phasesData,
             });
+            console.log(`[ScanWorker] Sent webhook notification for ${projectName}`);
 
-            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://launchready.me';
-            const scanUrl = `${appUrl}/projects/${projectId}`;
-
-            if (user?.email) {
-              // Check for score drop alert (>10 points)
-              const scoreDropAlerts = (user as unknown as { scoreDropAlerts?: boolean }).scoreDropAlerts ?? true;
-              if (scoreDropAlerts && previousScore !== undefined) {
-                const dropAmount = previousScore - scanResult.score;
-                if (dropAmount >= 10) {
-                  await sendScoreDropAlert(user.email, {
-                    projectName,
-                    projectUrl: url,
-                    currentScore: scanResult.score,
-                    previousScore,
-                    dropAmount,
-                    scanUrl,
-                  });
-                  console.log(`[ScanWorker] Sent score drop alert for ${projectName}`);
-                }
-              }
-
-              // Send scan complete notification (only for auto-scans or if enabled)
-              const scanCompleteNotify = (user as unknown as { scanCompleteNotify?: boolean }).scanCompleteNotify ?? true;
-              if (scanCompleteNotify && trigger === 'auto-scan') {
-                await sendScanCompleteEmail(user.email, {
+            // Send score drop webhook alert
+            if (previousScore !== undefined) {
+              const dropAmount = previousScore - scanResult.score;
+              if (dropAmount >= 5) {
+                await sendScoreDropWebhook(webhookUrl, {
                   projectName,
                   projectUrl: url,
-                  score: scanResult.score,
                   previousScore,
-                  phases: scanResult.phases.map(p => ({
-                    name: p.phaseName,
-                    score: p.score,
-                    maxScore: p.maxScore,
-                    status: p.score / p.maxScore >= 0.8 ? 'pass' : 
-                            p.score / p.maxScore >= 0.5 ? 'warn' : 'fail',
-                  })),
+                  currentScore: scanResult.score,
+                  dropAmount,
                   scanUrl,
                 });
-                console.log(`[ScanWorker] Sent scan complete email for ${projectName}`);
+                console.log(`[ScanWorker] Sent score drop webhook for ${projectName}`);
               }
             }
           }
-        } catch (emailError) {
-          // Log but don't fail the job if email fails
-          console.error('[ScanWorker] Failed to send email notification:', emailError);
+
+          // Send email notifications
+          if (isEmailConfigured() && user?.email) {
+            // Check for score drop alert (>10 points)
+            const scoreDropAlerts = (user as unknown as { scoreDropAlerts?: boolean }).scoreDropAlerts ?? true;
+            if (scoreDropAlerts && previousScore !== undefined) {
+              const dropAmount = previousScore - scanResult.score;
+              if (dropAmount >= 10) {
+                await sendScoreDropAlert(user.email, {
+                  projectName,
+                  projectUrl: url,
+                  currentScore: scanResult.score,
+                  previousScore,
+                  dropAmount,
+                  scanUrl,
+                });
+                console.log(`[ScanWorker] Sent score drop email alert for ${projectName}`);
+              }
+            }
+
+            // Send scan complete notification (only for auto-scans or if enabled)
+            const scanCompleteNotify = (user as unknown as { scanCompleteNotify?: boolean }).scanCompleteNotify ?? true;
+            if (scanCompleteNotify && trigger === 'auto-scan') {
+              await sendScanCompleteEmail(user.email, {
+                projectName,
+                projectUrl: url,
+                score: scanResult.score,
+                previousScore,
+                phases: phasesData.map(p => ({ ...p, status: p.status === 'warning' ? 'warn' : p.status })),
+                scanUrl,
+              });
+              console.log(`[ScanWorker] Sent scan complete email for ${projectName}`);
+            }
+          }
+        } catch (notificationError) {
+          // Log but don't fail the job if notifications fail
+          console.error('[ScanWorker] Failed to send notifications:', notificationError);
         }
       } catch (dbError) {
         // Log but don't fail the job if DB save fails

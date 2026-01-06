@@ -26,6 +26,7 @@ model User {
   scoreDropAlerts       Boolean   @default(true) // Get alerts when score drops
   weeklyDigest          Boolean   @default(true) // Weekly summary email
   scanCompleteNotify    Boolean   @default(true) // Notify when scan completes
+  webhookUrl            String?   // Slack/Discord webhook URL for notifications
   // GitHub OAuth integration (user-level for all projects)
   githubAccessToken     String?   // Access token for GitHub API
   githubUsername        String?   // GitHub username for display

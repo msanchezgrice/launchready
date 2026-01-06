@@ -79,6 +79,7 @@ export async function GET() {
       scoreDropAlerts: (dbUser as unknown as { scoreDropAlerts: boolean }).scoreDropAlerts ?? true,
       weeklyDigest: (dbUser as unknown as { weeklyDigest: boolean }).weeklyDigest ?? true,
       scanCompleteNotify: (dbUser as unknown as { scanCompleteNotify: boolean }).scanCompleteNotify ?? true,
+      webhookUrl: (dbUser as unknown as { webhookUrl: string | null }).webhookUrl ?? null,
       projects: dbUser.projects,
     });
   } catch (error) {
@@ -105,7 +106,28 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { scoreDropAlerts, weeklyDigest, scanCompleteNotify, name } = body;
+    const { scoreDropAlerts, weeklyDigest, scanCompleteNotify, name, webhookUrl } = body;
+
+    // Validate webhook URL if provided
+    if (webhookUrl !== undefined && webhookUrl !== null && webhookUrl !== '') {
+      // Check if user has Pro Plus or Enterprise plan for webhooks
+      if (dbUser.plan !== 'pro_plus' && dbUser.plan !== 'enterprise') {
+        return NextResponse.json(
+          { error: 'Webhooks require Pro Plus or Enterprise plan' },
+          { status: 403 }
+        );
+      }
+
+      // Validate URL format
+      try {
+        new URL(webhookUrl);
+      } catch {
+        return NextResponse.json(
+          { error: 'Invalid webhook URL format' },
+          { status: 400 }
+        );
+      }
+    }
 
     // Update user settings
     const updatedUser = await prisma.user.update({
@@ -115,6 +137,7 @@ export async function PATCH(request: NextRequest) {
         ...(typeof weeklyDigest === 'boolean' && { weeklyDigest }),
         ...(typeof scanCompleteNotify === 'boolean' && { scanCompleteNotify }),
         ...(name !== undefined && { name }),
+        ...(webhookUrl !== undefined && { webhookUrl: webhookUrl || null }),
       },
     });
 
@@ -126,6 +149,7 @@ export async function PATCH(request: NextRequest) {
       scoreDropAlerts: (updatedUser as unknown as { scoreDropAlerts: boolean }).scoreDropAlerts,
       weeklyDigest: (updatedUser as unknown as { weeklyDigest: boolean }).weeklyDigest,
       scanCompleteNotify: (updatedUser as unknown as { scanCompleteNotify: boolean }).scanCompleteNotify,
+      webhookUrl: (updatedUser as unknown as { webhookUrl: string | null }).webhookUrl,
     });
   } catch (error) {
     console.error('Error updating settings:', error);

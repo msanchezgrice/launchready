@@ -31,6 +31,7 @@ import {
   CheckCircle,
 } from 'lucide-react'
 import ScanProgressModal from '@/components/ui/ScanProgressModal'
+import ScoreHistoryChart from '@/components/ui/ScoreHistoryChart'
 
 interface Finding {
   type: 'success' | 'warning' | 'error'
@@ -435,6 +436,13 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                 </div>
               </div>
             </div>
+
+            {/* Score History Chart */}
+            {project.scans.length > 1 && (
+              <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 mb-8">
+                <ScoreHistoryChart projectId={project.id} />
+              </div>
+            )}
 
             {/* Success Message */}
             {successMessage && (

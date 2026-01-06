@@ -280,7 +280,7 @@ export function startScanWorker(concurrency: number = 2): void {
             projectId,
             score: scanResult.score,
             trigger,
-            metadata: {
+            metadata: JSON.parse(JSON.stringify({
               duration,
               jobId: job.id?.toString(),
               // Include GitHub scan results if available
@@ -293,7 +293,7 @@ export function startScanWorker(concurrency: number = 2): void {
                   repoFound: githubScanResult.repoFound,
                 },
               } : {}),
-            },
+            })),
             phases: {
               create: scanResult.phases.map((phase) => ({
                 phaseName: phase.phaseName,

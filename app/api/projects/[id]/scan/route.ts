@@ -148,7 +148,7 @@ export async function POST(request: NextRequest, { params }: { params: Params })
         projectId: project.id,
         score: scanResult.score,
         trigger: 'manual',
-        metadata: githubScanResult ? {
+        metadata: githubScanResult ? JSON.parse(JSON.stringify({
           githubScan: {
             score: githubScanResult.score,
             maxScore: githubScanResult.maxScore,
@@ -156,7 +156,7 @@ export async function POST(request: NextRequest, { params }: { params: Params })
             recommendations: githubScanResult.recommendations,
             repoFound: githubScanResult.repoFound,
           },
-        } : undefined,
+        })) : undefined,
         phases: {
           create: scanResult.phases.map((phase: ScanPhaseResult) => ({
             phaseName: phase.phaseName,

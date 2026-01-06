@@ -60,6 +60,7 @@ interface Scan {
   score: number
   scannedAt: string
   phases: Phase[]
+  metadata?: Record<string, unknown> | null
 }
 
 interface Project {
